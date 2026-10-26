@@ -140,6 +140,12 @@ function drawEntity(e, t) {
 function headY(e) { const C = MF.characters[e.sprite]; return C ? C.ay * SC * .62 * (e.scale || 1) : 50; }
 
 // ───────────────────────── effects
+const SETTINGS = { names: true, dmg: true, mmBig: false, hideOthersNames: false }; try { Object.assign(SETTINGS, JSON.parse(localStorage.getItem('rm-settings') || '{}')); } catch {}
+function saveSettings() { try { localStorage.setItem('rm-settings', JSON.stringify(SETTINGS)); } catch {} applySettings(); }
+function applySettings() { $('minimap').classList.toggle('big', !!SETTINGS.mmBig); }
+function openSettings() { const w = $('settings'); w.hidden = !w.hidden; if (w.hidden) return; w.innerHTML = `<div class="wh"><span class="wt">설정</span><button class="wx" id="setx">✕</button></div><div class="wb"><label><input type="checkbox" data-s="sound" ${isMuted() ? '' : 'checked'}> 효과음·환경음</label><label><input type="checkbox" data-s="names" ${SETTINGS.names ? 'checked' : ''}> 이름표 표시</label><label><input type="checkbox" data-s="hideOthersNames" ${SETTINGS.hideOthersNames ? 'checked' : ''}> 다른 모험가 이름 숨기기</label><label><input type="checkbox" data-s="dmg" ${SETTINGS.dmg ? 'checked' : ''}> 피해 숫자 표시</label><label><input type="checkbox" data-s="mmBig" ${SETTINGS.mmBig ? 'checked' : ''}> 큰 미니맵</label><div class="row"><button class="btn" id="zoomReset">확대 초기화</button><button class="btn" id="setLogout">로그아웃</button></div><p class="ds">단축키: A 공격 · H 치유 · S/D 기술 · 1·2·3 물약·귀환 · Z 줍기 · I 가방 · E 장비 · C 캐릭터 · Q 의뢰 · L 순위 · M 소리 · O 설정 · R 귓속말 답장 · Esc 멈춤</p></div>`;
+  $('setx').onclick = () => { w.hidden = true; }; $('zoomReset').onclick = () => { zoom = 1; }; $('setLogout').onclick = () => $('logout').click();
+  for (const c of w.querySelectorAll('input[data-s]')) c.onchange = () => { if (c.dataset.s === 'sound') { const mu = toggleMute(); $('muteBtn').querySelector('small').textContent = mu ? '음소거' : '소리'; return; } SETTINGS[c.dataset.s] = c.checked; saveSettings(); }; }
 const floats = [], bolts = [], clicks = [], rings = [], tele = [], chainsFx = []; let hoverId = 0, dayPhase = 0, questMarks = {}, party = null, isAdminUser = false, lastWhisper = null;
 function renderParty() {
   const el = $('party'); if (!party || !party.id) { el.hidden = true; return; } el.hidden = false;
@@ -200,7 +206,7 @@ function onMsg(m) {
   if (m.t === 'ev') {
     const dist = e => (e && me && me.rx !== null) ? Math.hypot(e.rx - me.rx, e.ry - me.ry) : 0;
     if (m.k === 'atk') { const a = ents.get(m.a), b = ents.get(m.b); if (a) { a.atkT = t; sfxAt(m.r ? 'bolt' : 'swing', dist(a)); } if (m.r && a && b) bolts.push({ a, b, t0: t, dur: 120 + Math.hypot(a.x - b.x, a.y - b.y) * 60 }); }
-    else if (m.k === 'dmg') { const b = ents.get(m.b); if (b) { b.hitT = t; if (m.b === myId) sfx.hurt(); else sfxAt(m.c ? 'crit' : 'hit', dist(b)); floats.push({ x: b.rx, y: b.ry, h: headY(b), txt: String(m.v), col: m.b === myId ? '#ff7b6b' : m.c ? '#ffd86b' : '#ffffff', big: !!m.c, t0: t }); } }
+    else if (m.k === 'dmg') { const b = ents.get(m.b); if (b) { b.hitT = t; if (m.b === myId) sfx.hurt(); else sfxAt(m.c ? 'crit' : 'hit', dist(b)); if (SETTINGS.dmg || m.b === myId) floats.push({ x: b.rx, y: b.ry, h: headY(b), txt: String(m.v), col: m.b === myId ? '#ff7b6b' : m.c ? '#ffd86b' : '#ffffff', big: !!m.c, t0: t }); } }
     else if (m.k === 'die') { const e = ents.get(m.id); if (e) sfxAt('die', dist(e)); }
     else if (m.k === 'lvl') { const e = ents.get(m.id); if (e) { if (m.id === myId) sfx.level(); floats.push({ x: e.rx, y: e.ry, h: headY(e) + 10, txt: m.txt || 'LEVEL UP!', col: '#ffd86b', big: true, t0: t, life: 1800 }); rings.push({ x: e.rx, y: e.ry, col: '255,216,107', t0: t, life: 900, r: 40 }); } }
     else if (m.k === 'fx') {
@@ -240,14 +246,14 @@ canvas.addEventListener('pointerdown', ev => {
   if (!myId || ev.button === 2) return; $('chatin').blur();
   const e = pickEntity(ev.clientX, ev.clientY);
   if (e) { if (e.kind === 3) { send({ t: 'pick', id: e.id }); return; } if (e.kind === 4) { send({ t: 'talk', npc: e.extra }); return; } targetId = e.id; send({ t: 'attack', id: e.id }); return; }
-  const [x, y] = screenToTile(ev.clientX, ev.clientY); targetId = 0; send({ t: 'move', x, y }); clicks.push({ x, y, t0: performance.now() });
+  const [x, y] = screenToTile(ev.clientX, ev.clientY); targetId = 0; send({ t: 'move', x, y }); clicks.push({ x, y, t0: performance.now() }); dest = { x, y, t0: performance.now() };
 });
 let pinch = null, pressTimer = 0;
 canvas.addEventListener('touchstart', ev => { if (ev.touches.length === 2) { pinch = { d: Math.hypot(ev.touches[0].clientX - ev.touches[1].clientX, ev.touches[0].clientY - ev.touches[1].clientY), z: zoom }; } else if (ev.touches.length === 1) { const t0 = ev.touches[0]; clearTimeout(pressTimer); pressTimer = setTimeout(() => { const e = pickEntity(t0.clientX, t0.clientY); if (e && e.kind === 1) playerMenu(e, t0.clientX, t0.clientY); }, 550); } }, { passive: true });
 canvas.addEventListener('touchmove', ev => { clearTimeout(pressTimer); if (pinch && ev.touches.length === 2) { const d = Math.hypot(ev.touches[0].clientX - ev.touches[1].clientX, ev.touches[0].clientY - ev.touches[1].clientY); zoom = clamp(pinch.z * d / pinch.d, .6, 1.8); ev.preventDefault(); } }, { passive: false });
 canvas.addEventListener('touchend', () => { clearTimeout(pressTimer); pinch = null; }, { passive: true });
 canvas.addEventListener('wheel', ev => { zoom = clamp(zoom * (ev.deltaY > 0 ? .9 : 1.1), .6, 1.8); ev.preventDefault(); }, { passive: false });
-$('minimap').addEventListener('pointerdown', ev => { if (!myId) return; const r = ev.currentTarget.getBoundingClientRect(); const x = (ev.clientX - r.left) / r.width * MAP, y = (ev.clientY - r.top) / r.height * MAP; send({ t: 'move', x, y }); });
+$('minimap').addEventListener('pointerdown', ev => { if (!myId) return; const r = ev.currentTarget.getBoundingClientRect(); const x = (ev.clientX - r.left) / r.width * MAP, y = (ev.clientY - r.top) / r.height * MAP; send({ t: 'move', x, y }); dest = { x, y, t0: performance.now() }; });
 addEventListener('keydown', ev => {
   if (!myId) return; const inChat = document.activeElement === $('chatin');
   if (ev.key === 'Enter' && !inChat) { $('chatin').focus(); ev.preventDefault(); return; }
@@ -259,6 +265,7 @@ addEventListener('keydown', ev => {
   else if (k === 'd') send({ t: 'skill2' });
   else if (k === 'm') { const mu = toggleMute(); addLog(mu ? '소리를 껐습니다.' : '소리를 켰습니다.', 'sys'); $('muteBtn').querySelector('small').textContent = mu ? '음소거' : '소리'; }
   else if (k === 'q') { ui.toggle('quest'); send({ t: 'quests' }); }
+  else if (k === 'o') openSettings();
   else if (k === 'l') send({ t: 'leaderboard' });
   else if (k === 'r' && lastWhisper) { $('chatin').value = `/귓 ${lastWhisper} `; $('chatin').focus(); ev.preventDefault(); }
   else if (k === '1' || k === '2' || k === '3') { const id = { 1: 'hpPotion', 2: 'mpPotion', 3: 'scroll' }[k]; const i = ui.firstOf(id); if (i >= 0) send({ t: 'use', i, id }); else addLog(`${ITEMS[id].name}이(가) 없습니다.`, 'sys'); }
@@ -302,6 +309,7 @@ const ui = createUI({ MF, send: o => send(o), log: addLog });
       initAudio(); connect(j.token);
     } catch (err) { $('jerr').textContent = err.message; $('jbtn').disabled = false; }
   });
+  applySettings(); $('setBtn').onclick = openSettings;
   $('adminLink').onclick = () => { let tk = ''; try { tk = localStorage.getItem('rm-token') || ''; } catch {} window.open('/admin?token=' + encodeURIComponent(tk), '_blank'); };
   $('logout').onclick = async () => { let tk = null; try { tk = localStorage.getItem('rm-token'); localStorage.removeItem('rm-token'); } catch {} if (tk) await fetch('/api/logout', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ token: tk }) }); location.reload(); };
   for (const b of document.querySelectorAll('#hotbar [data-key]')) b.addEventListener('click', () => dispatchEvent(new KeyboardEvent('keydown', { key: b.dataset.key })));
@@ -310,11 +318,21 @@ const ui = createUI({ MF, send: o => send(o), log: addLog });
 // ───────────────────────── minimap
 const mmBase = document.createElement('canvas'); mmBase.width = MAP; mmBase.height = MAP;
 { const g = mmBase.getContext('2d'); for (let y = 0; y < MAP; y++) for (let x = 0; x < MAP; x++) { const c = GCOL[W.ground[y * MAP + x]][0]; g.fillStyle = `rgb(${c})`; if (W.block[y * MAP + x] && W.ground[y * MAP + x] !== G.WATER) g.fillStyle = W.ground[y * MAP + x] === G.COBBLE ? '#d8d0c0' : '#3a4a2a'; g.fillRect(x, y, 1, 1); } }
-const mm = $('minimap').getContext('2d');
+const mm = $('minimap').getContext('2d'); let dest = null;
 function drawMinimap() {
   mm.imageSmoothingEnabled = false; mm.drawImage(mmBase, 0, 0, 160, 160); const k = 160 / MAP;
-  for (const e of ents.values()) { if (e.st === 4 || e.rx === null || e.kind === 3) continue; if (e.kind === 4) { mm.fillStyle = '#a8e0a0'; mm.fillRect(e.rx * k - 1, e.ry * k - 1, 2, 2); continue; } mm.fillStyle = e.id === myId ? '#ffd86b' : e.kind === 1 ? (inParty(e.id) ? '#8fe3a0' : e.flag === 2 ? '#ff5a4a' : '#7ab4ff') : '#d03a2a'; const r = e.id === myId ? 3 : 1.6; mm.beginPath(); mm.arc(e.rx * k, e.ry * k, r, 0, 7); mm.fill(); }
+  // view window + destination
+  if (me && me.rx !== null) { mm.strokeStyle = 'rgba(255,255,255,.25)'; mm.lineWidth = 1; mm.strokeRect((me.rx - 13) * k, (me.ry - 13) * k, 26 * k, 26 * k); }
+  if (dest && performance.now() - dest.t0 < 20000 && me && Math.hypot(me.rx - dest.x, me.ry - dest.y) > 1.5) { mm.strokeStyle = '#ffd86b'; mm.lineWidth = 1; mm.beginPath(); mm.moveTo(dest.x * k - 3, dest.y * k - 3); mm.lineTo(dest.x * k + 3, dest.y * k + 3); mm.moveTo(dest.x * k + 3, dest.y * k - 3); mm.lineTo(dest.x * k - 3, dest.y * k + 3); mm.stroke(); }
+  // gates
+  mm.fillStyle = '#e8dcc0'; mm.font = 'bold 8px sans-serif'; mm.textAlign = 'center'; for (const g of GATES) mm.fillText(g.dir, g.x * k, g.y * k + 3);
+  // party members (even out of view)
+  if (party && party.id) for (const pm of party.members) { if (pm.id === myId || ents.has(pm.id)) continue; mm.fillStyle = '#8fe3a0'; mm.beginPath(); mm.arc(pm.x * k, pm.y * k, 2, 0, 7); mm.fill(); }
+  for (const e of ents.values()) { if (e.st === 4 || e.rx === null || e.kind === 3) continue; if (e.kind === 4) { mm.fillStyle = '#a8e0a0'; mm.fillRect(e.rx * k - 1, e.ry * k - 1, 2, 2); continue; }
+    if (e.boss) { mm.fillStyle = '#ff9a4a'; star(mm, e.rx * k, e.ry * k, 4); continue; }
+    mm.fillStyle = e.id === myId ? '#ffd86b' : e.kind === 1 ? (inParty(e.id) ? '#8fe3a0' : e.flag === 2 ? '#ff5a4a' : '#7ab4ff') : e.elite ? '#f2d16a' : '#d03a2a'; const r = e.id === myId ? 3 : e.elite ? 2.2 : 1.6; mm.beginPath(); mm.arc(e.rx * k, e.ry * k, r, 0, 7); mm.fill(); }
 }
+function star(g, x, y, r) { g.beginPath(); for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + i * Math.PI / 5, rr = i % 2 ? r * .45 : r; g.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr); } g.closePath(); g.fill(); }
 
 // ───────────────────────── HUD
 let lastZone = '';
@@ -377,6 +395,7 @@ function frame(t) {
       if (e.kind === 3) { if (e.id !== hoverId && Math.hypot(e.x - (me ? me.x : 0), e.y - (me ? me.y : 0)) > 5) continue; ctx.font = "500 10.5px 'Noto Sans KR'"; ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,.85)'; ctx.strokeText(e.name, sx, sy - 26); ctx.fillStyle = e.sprite === 'gold' ? '#ffd86b' : '#e8e0cf'; ctx.fillText(e.name, sx, sy - 26); continue; }
       const y = sy - headY(e) - 8;
       ctx.font = (e.id === myId || e.boss ? "700 12px" : "500 11px") + " 'Noto Sans KR'"; const label = e.kind === 2 ? `${e.name} Lv${e.level}` : e.name;
+      if (!SETTINGS.names && e.id !== myId && e.id !== targetId && !e.boss) continue; if (SETTINGS.hideOthersNames && e.kind === 1 && e.id !== myId && e.id !== targetId && !inParty(e.id)) continue;
       if (e.kind === 4 && questMarks[e.extra]) { ctx.font = "700 16px 'Noto Sans KR'"; const qm = questMarks[e.extra] === 2 ? '?' : '!'; const qy = y - 16 - Math.abs(Math.sin(t / 400)) * 4; ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,.85)'; ctx.strokeText(qm, sx, qy); ctx.fillStyle = '#ffd86b'; ctx.fillText(qm, sx, qy); ctx.font = "500 11px 'Noto Sans KR'"; }
       ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,.85)'; ctx.strokeText(label, sx, y); ctx.fillStyle = e.boss ? '#ff9a4a' : e.elite ? '#f2d16a' : entColor(e); ctx.fillText(label, sx, y);
       if (e.kind !== 4 && e.id !== myId && (e.hp < e.maxHp || e.id === targetId)) { ctx.fillStyle = 'rgba(0,0,0,.7)'; ctx.fillRect(sx - 18, y + 4, 36, 5); ctx.fillStyle = e.id === targetId ? '#ff5a4a' : '#c0392b'; ctx.fillRect(sx - 18, y + 4, 36 * clamp(e.hp / e.maxHp, 0, 1), 5); }
