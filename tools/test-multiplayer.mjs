@@ -77,8 +77,40 @@ A.send({ t: 'job', npc: 'knights' }); await sleep(300);
 check(A.me[11] === 'knight' && A.me[1] > hp10, `class change to knight (maxHp ${hp10} -> ${A.me[1]})`);
 A.send({ t: 'skill' }); await sleep(200); check(A.said('성내에서는'), 'skills are blocked inside town');
 
+
+// quests: accept at the guard, kills count, turn in
+A.send({ t: 'talk', npc: 'guard_s1' }); await sleep(3500);
+check(A.npc && A.npc.quests.some(q => q.id === 'minions' && q.st === 'avail'), 'guard offers the skeleton quest');
+A.send({ t: 'qaccept', npc: 'guard_s1', q: 'minions' }); await sleep(300); check(A.said('의뢰 수락'), 'quest accepted');
+A.send({ t: 'move', x: 64.5, y: 84.5 }); await sleep(5000);
+let kills = 0; for (let i = 0; i < 12 && kills < 8; i++) { const mon = [...A.ents.values()].filter(e => A.meta.get(e[0])?.[3] === 'skel_minion' && e[4] !== 4).sort((p, q) => Math.hypot(p[1] - A.pos()[0], p[2] - A.pos()[1]) - Math.hypot(q[1] - A.pos()[0], q[2] - A.pos()[1]))[0]; if (!mon) { A.send({ t: 'move', x: 64.5, y: 90.5 }); await sleep(3000); continue; } A.send({ t: 'attack', id: mon[0] }); for (let k = 0; k < 16; k++) { await sleep(400); if (A.evs.some(e => e.k === 'die' && e.id === mon[0])) { kills++; break; } } }
+check(A.said('성문 밖의 해골들: 8/8') || kills >= 8, `kill counter reaches 8 (${kills})`);
+A.send({ t: 'talk', npc: 'guard_s1' }); await sleep(7000); const gq = A.inv.gold; A.send({ t: 'qdone', npc: 'guard_s1', q: 'minions' }); await sleep(400);
+check(A.inv.gold === gq + 120 && A.said('의뢰 완료'), 'quest turned in: +120 G');
+// bank
+A.send({ t: 'talk', npc: 'bank' }); await sleep(4000); check(A.npc && A.npc.bank, 'bank window opens');
+const potIdx = A.inv.inv.findIndex(x => x.id === 'hpPotion'); const potN = A.inv.inv[potIdx]?.n; A.send({ t: 'bankIn', npc: 'bank', i: potIdx, id: 'hpPotion' }); await sleep(300);
+check(A.npc.bankItems.some(x => x.id === 'hpPotion' && x.n === potN) && !A.inv.inv.some(x => x.id === 'hpPotion'), 'deposit potions into the bank');
+A.send({ t: 'bankGold', npc: 'bank', v: 100 }); await sleep(300); check(A.npc.bankGold === 100, 'deposit 100 gold');
+A.send({ t: 'bankOut', npc: 'bank', i: 0, id: A.npc.bankItems[0].id }); await sleep(300); check(A.inv.inv.some(x => x.id === 'hpPotion'), 'withdraw potions');
+// advancement at level 20 + second skill
+A.ws.close(); await sleep(400);
+{ const db2 = new DatabaseSync(DATA + '/ravenmoor.db'); const row2 = db2.prepare("SELECT bank_gold, quests FROM characters c JOIN accounts a ON a.id=c.account_id WHERE a.name='기사앨런'").get(); check(row2.bank_gold === 100 && JSON.parse(row2.quests).minions?.st === 'done', 'bank gold and quest state persisted'); db2.prepare("UPDATE characters SET level=20 WHERE account_id=(SELECT id FROM accounts WHERE name='기사앨런')").run(); db2.close(); }
+A = bot(r5.token); await A.ready; await sleep(700);
+A.send({ t: 'talk', npc: 'knights' }); await sleep(4500); A.send({ t: 'advance', npc: 'knights' }); await sleep(300);
+check(A.me[11] === 'paladin', 'advanced to paladin at level 20');
+// boss: walk to grey fang, verify boss meta and special attack events
+A.send({ t: 'move', x: 64.5, y: 82.5 }); await sleep(5000);
+let hpP = A.inv.inv.findIndex(x => x.id === 'hpPotion');
+A.send({ t: 'move', x: 83.5, y: 91.5 }); for (let i = 0; i < 14; i++) { await sleep(1000); if (Math.hypot(A.pos()[0] - 83.5, A.pos()[1] - 91.5) < 3) break; }
+const boss = [...A.meta.values()].find(m => m[9] === 1 && m[3] === 'skel_rogue');
+check(!!boss, 'boss 회색 송곳니 is visible with boss flag and scale ' + (boss && boss[8]));
+if (boss) { A.send({ t: 'attack', id: boss[0] }); for (let k = 0; k < 30; k++) { await sleep(500); if (A.me[0] < A.me[1] * .4) { hpP = A.inv.inv.findIndex(x => x.id === 'hpPotion'); if (hpP >= 0) A.send({ t: 'use', i: hpP, id: 'hpPotion' }); } if (A.evs.some(e => e.k === 'fx' && (e.fx === 'roar'))) break; } }
+check(A.evs.some(e => e.k === 'fx' && e.fx === 'roar'), 'boss used its howl (summons)');
+check([...A.meta.values()].filter(m => m[3] === 'skel_minion').length > 0, 'summoned minions appeared');
+A.send({ t: 'skill2' }); await sleep(300); check(A.evs.some(e => e.k === 'fx' && e.fx === 'heal' && e.id === A.id) || A.said('마나') || A.said('대상'), 'second skill (smite) fires or reports a reason');
 const health = await (await fetch(`http://127.0.0.1:${PORT}/health`)).json();
-check(health.players === 2 && health.monsters > 50, `health ${JSON.stringify(health)}`);
+check(health.players === 2 && health.monsters > 90, `health ${JSON.stringify(health)}`);
 check((await fetch(`http://127.0.0.1:${PORT}/`)).ok, 'client page is served');
 A.ws.close(); B.ws.close(); srv.kill();
 const failed = results.filter(r => !r[0]).length; console.log(`\n${results.length - failed}/${results.length} passed`);

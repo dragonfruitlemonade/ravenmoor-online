@@ -38,13 +38,15 @@ CREATE TABLE IF NOT EXISTS sessions (
 );
 `);
 
+for (const col of ['bank TEXT NOT NULL DEFAULT \'[]\'', 'bank_gold INTEGER NOT NULL DEFAULT 0', 'quests TEXT NOT NULL DEFAULT \'{}\'']) { try { db.exec(`ALTER TABLE characters ADD COLUMN ${col}`); } catch {} }
+
 const q = {
   findAcc: db.prepare('SELECT * FROM accounts WHERE name = ?'),
   insAcc: db.prepare('INSERT INTO accounts (name, pass_hash, salt, created_at) VALUES (?, ?, ?, ?)'),
   touch: db.prepare('UPDATE accounts SET last_login = ? WHERE id = ?'),
   insChar: db.prepare('INSERT INTO characters (account_id, look, gold, inventory, equipment, updated_at) VALUES (?, ?, ?, ?, ?, ?)'),
   getChar: db.prepare('SELECT a.name, c.* FROM characters c JOIN accounts a ON a.id = c.account_id WHERE c.account_id = ?'),
-  saveChar: db.prepare('UPDATE characters SET cls=?, level=?, exp=?, gold=?, align=?, kills=?, inventory=?, equipment=?, updated_at=? WHERE account_id=?'),
+  saveChar: db.prepare('UPDATE characters SET cls=?, level=?, exp=?, gold=?, align=?, kills=?, inventory=?, equipment=?, bank=?, bank_gold=?, quests=?, updated_at=? WHERE account_id=?'),
   insSess: db.prepare('INSERT INTO sessions (token, account_id, expires_at) VALUES (?, ?, ?)'),
   getSess: db.prepare('SELECT account_id FROM sessions WHERE token = ? AND expires_at > ?'),
   delSess: db.prepare('DELETE FROM sessions WHERE token = ?'),
@@ -74,6 +76,6 @@ export function login(name, password) {
 function newSession(accountId) { const token = crypto.randomBytes(32).toString('base64url'); q.insSess.run(token, accountId, Date.now() + SESSION_MS); return token; }
 export function accountForToken(token) { const r = q.getSess.get(String(token || ''), Date.now()); return r ? r.account_id : null; }
 export function logout(token) { q.delSess.run(String(token || '')); }
-export function loadCharacter(accountId) { const c = q.getChar.get(accountId); if (!c) return null; c.inventory = JSON.parse(c.inventory); c.equipment = JSON.parse(c.equipment); return c; }
-export function saveCharacter(p) { q.saveChar.run(p.cls, p.level, p.exp, p.gold, p.align, p.kills, JSON.stringify(p.inv), JSON.stringify(p.equip), Date.now(), p.accountId); }
+export function loadCharacter(accountId) { const c = q.getChar.get(accountId); if (!c) return null; c.inventory = JSON.parse(c.inventory); c.equipment = JSON.parse(c.equipment); c.bank = JSON.parse(c.bank || '[]'); c.quests = JSON.parse(c.quests || '{}'); return c; }
+export function saveCharacter(p) { q.saveChar.run(p.cls, p.level, p.exp, p.gold, p.align, p.kills, JSON.stringify(p.inv), JSON.stringify(p.equip), JSON.stringify(p.bank || []), p.bankGold || 0, JSON.stringify(p.quests || {}), Date.now(), p.accountId); }
 setInterval(() => q.purge.run(Date.now()), 3600_000).unref();

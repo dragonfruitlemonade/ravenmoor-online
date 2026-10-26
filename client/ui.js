@@ -1,5 +1,5 @@
 // Windows: inventory, equipment, character, NPC services. Everything here only *requests* actions; the server decides.
-import { ITEMS, SLOTS, SLOT_NAME, INV_SIZE, CLASSES, CLASS_LEVEL, ENH_RATE, enhCost, sellPrice, itemName, itemDesc, statsFor } from '/shared/rules.js';
+import { ITEMS, SLOTS, SLOT_NAME, INV_SIZE, CLASSES, CLASS_LEVEL, ADV, ADV_LEVEL, ADV_OF, classInfo, ENH_RATE, enhCost, sellPrice, itemName, itemDesc, statsFor, QUESTS, BANK_SIZE } from '/shared/rules.js';
 
 const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -33,7 +33,7 @@ const itemIcon = (MF, id) => iconSrc(MF, ITEMS[id] ? ITEMS[id].icon : 'gold');
 
 // ── window manager
 export function createUI({ MF, send, log }) {
-  const state = { inv: [], equip: {}, gold: 0, me: null, npc: null, npcTab: null, selInv: -1, selEq: null, selEnh: null };
+  const state = { inv: [], equip: {}, gold: 0, me: null, npc: null, npcTab: null, selInv: -1, selEq: null, selEnh: null, quests: [] };
   const wins = {};
   let z = 20;
   function makeWin(key, title, css) {
@@ -50,8 +50,9 @@ export function createUI({ MF, send, log }) {
   }
   makeWin('inv', '가방', { right: '16px', top: '200px' }); makeWin('eq', '장비', { left: '16px', top: '220px' }); makeWin('char', '캐릭터', { left: '350px', top: '220px' });
   makeWin('npc', '', { left: '50%', top: '50%', transform: 'translate(-50%,-50%)', width: 'min(500px, calc(100vw - 32px))' });
+  makeWin('quest', '의뢰', { right: '16px', top: '200px', width: 'min(380px, calc(100vw - 32px))' });
   const show = k => { wins[k].hidden = false; wins[k].style.zIndex = ++z; render(k); };
-  const hide = k => { wins[k].hidden = true; if (k === 'npc') state.npc = null; };
+  const hide = k => { wins[k].hidden = true; if (k === 'npc') { state.npc = null; send({ t: 'npcclose' }); } };
   const toggle = k => wins[k].hidden ? show(k) : hide(k);
   const anyOpen = () => Object.values(wins).some(w => !w.hidden);
   const closeAll = () => Object.keys(wins).forEach(hide);
@@ -60,6 +61,12 @@ export function createUI({ MF, send, log }) {
   const detail = (it, actions) => `<div class="detail"><img src="${itemIcon(MF, it.id)}" alt=""><div class="dt"><div class="dn">${esc(itemName(it))}${it.n > 1 ? ` <span class="ds">×${it.n}</span>` : ''}</div><div class="dd">${itemDesc(it)}</div><div class="dd">판매가 ${sellPrice(it)} G</div></div><div class="da">${actions}</div></div>`;
   const hint = t => `<div class="detail hint">${t}</div>`;
   const statsLine = () => { const m = state.me; return m ? `<div class="stats"><span>공격 <b>${m[8]}</b></span><span>방어 <b>${m[9]}</b></span><span>금화 <b>${state.gold}</b></span></div>` : ''; };
+  const QBY = Object.fromEntries(QUESTS.map(q => [q.id, q]));
+  const questRow = (q, st, prog, withBtn) => { const r = q.reward; const rw = `보상: 금화 ${r.gold}${r.exp ? ' · 경험치 ' + r.exp : ''}${r.items ? ' · ' + Object.entries(r.items).map(([k, v]) => ITEMS[k].name + (v > 1 ? ' ×' + v : '')).join(', ') : ''}`;
+    let act = ''; if (withBtn) { if (st === 'avail') act = `<button class="btn" data-act="qaccept" data-q="${q.id}">수락</button>`; else if (st === 'active') act = prog >= q.n ? `<button class="btn" data-act="qdone" data-q="${q.id}">완료</button>` : `<span class="ds">${prog}/${q.n}</span>`; else if (st === 'done') act = '<span class="ds">완료됨</span>'; else act = `<span class="ds">Lv ${q.lvl} 필요</span>`; }
+    else act = st === 'active' ? `<span class="ds ${prog >= q.n ? 'ok' : ''}">${prog >= q.n ? '완료 가능' : prog + '/' + q.n}</span>` : '';
+    const mark = st === 'done' ? '✓' : st === 'active' ? (prog >= q.n ? '?' : '…') : '!';
+    return `<div class="row q"><div class="qi">${mark}</div><div><div class="nm">${q.title}</div><div class="ds">${q.desc}</div><div class="ds gold">${rw}</div></div><div class="pr">${act}</div></div>`; };
 
   function render(k) {
     const w = wins[k]; if (!w || w.hidden) return; const body = w.querySelector('.wb'); const title = w.querySelector('.wt');
@@ -74,16 +81,26 @@ export function createUI({ MF, send, log }) {
       const it = state.equip[state.selEq]; const det = it ? detail({ ...it, n: 1 }, `<button class="btn" data-act="unequip">해제</button>`) : hint('장비 칸을 누르면 설명이 보이고, 두 번 누르면 해제합니다.');
       const m = state.me; body.innerHTML = `<div class="eqgrid">${g}</div>${det}<div class="wfoot"><span>공격 ${m ? m[8] : '-'}</span><span>방어 ${m ? m[9] : '-'}</span><span>공격속도 ${m ? (1000 / m[15]).toFixed(2) : '-'}/초</span></div>`;
     } else if (k === 'char') {
-      const m = state.me; if (!m) return; const c = CLASSES[m[11]];
+      const m = state.me; if (!m) return; const c = classInfo(m[11]);
       const row = (a, b) => `<div class="cr"><span>${a}</span><b>${b}</b></div>`;
-      body.innerHTML = `<div class="cgrid">${row('직업', c.name)}${row('레벨', m[4])}${row('경험치', `${m[5]} / ${m[6]}`)}${row('체력', `${m[0]} / ${m[1]}`)}${row('마나', `${m[2]} / ${m[3]}`)}${row('공격력', m[8])}${row('방어력', m[9])}${row('공격속도', (1000 / m[15]).toFixed(2) + '/초')}${row('사거리', m[16] > 2 ? m[16] + '칸 (원거리)' : '근접')}${row('기술', c.skill ? c.skill.name : '없음')}${row('성향', m[10] < 0 ? `카오틱 ${m[10]}` : m[10])}${row('처치한 모험가', m[17])}</div>${m[11] === 'commoner' ? `<p class="say">레벨 ${CLASS_LEVEL}이 되면 기사단·마법사 탑·예배당·여관의 스승에게 전직할 수 있습니다.</p>` : ''}`;
+      body.innerHTML = `<div class="cgrid">${row('직업', c.name)}${row('레벨', m[4])}${row('경험치', `${m[5]} / ${m[6]}`)}${row('체력', `${m[0]} / ${m[1]}`)}${row('마나', `${m[2]} / ${m[3]}`)}${row('공격력', m[8])}${row('방어력', m[9])}${row('공격속도', (1000 / m[15]).toFixed(2) + '/초')}${row('사거리', m[16] > 2 ? m[16] + '칸 (원거리)' : '근접')}${row('기술', c.skill ? c.skill.name + (c.skill2 ? ' · ' + c.skill2.name : '') : '없음')}${row('성향', m[10] < 0 ? `카오틱 ${m[10]}` : m[10])}${row('처치한 모험가', m[17])}</div>${m[11] === 'commoner' ? `<p class="say">레벨 ${CLASS_LEVEL}이 되면 기사단·마법사 탑·예배당·여관의 스승에게 전직할 수 있습니다.</p>` : ADV_OF[m[11]] ? `<p class="say">레벨 ${ADV_LEVEL}이 되면 같은 스승에게 ${ADV[ADV_OF[m[11]]].name}(으)로 승급할 수 있습니다.</p>` : ''}`;
+    } else if (k === 'quest') {
+      const act = state.quests.filter(x => x.st === 'active'); const done = state.quests.filter(x => x.st === 'done').length;
+      body.innerHTML = (act.length ? act.map(x => questRow(QBY[x.id], x.st, x.prog, false)).join('') : hint('진행 중인 의뢰가 없습니다. 상인·경비병·스승의 머리 위에 ! 표시가 있으면 말을 걸어 보세요.')) + `<div class="wfoot"><span>완료한 의뢰 ${done} / ${QUESTS.length}</span></div>`;
     } else if (k === 'npc') {
       const n = state.npc; if (!n) return; title.textContent = n.name; const tabs = [];
-      if (n.shop) tabs.push(['buy', '구매'], ['sell', '판매']); if (n.craft) tabs.push(['craft', '제작']); if (n.enhance) tabs.push(['enh', '강화']); if (n.rest) tabs.push(['rest', '휴식']); if (n.master) tabs.push(['job', '전직']); if (n.atone) tabs.push(['atone', '속죄']);
+      if (n.quests && n.quests.length) tabs.push(['quest', '의뢰']); if (n.bank) tabs.push(['bank', '창고']);
+      if (n.shop) tabs.push(['buy', '구매'], ['sell', '판매']); if (n.craft) tabs.push(['craft', '제작']); if (n.enhance) tabs.push(['enh', '강화']); if (n.rest) tabs.push(['rest', '휴식']);
+      if (n.master) { tabs.push(['job', '전직']); if (ADV_OF[n.master]) tabs.push(['adv', '승급']); } if (n.atone) tabs.push(['atone', '속죄']);
       if (!state.npcTab || !tabs.some(t => t[0] === state.npcTab)) state.npcTab = tabs[0] ? tabs[0][0] : null;
       let h = statsLine() + (tabs.length > 1 ? `<div class="tabs">${tabs.map(([k2, l]) => `<button class="btn${state.npcTab === k2 ? ' on' : ''}" data-tab="${k2}">${l}</button>`).join('')}</div>` : '');
       const T = state.npcTab;
-      if (n.guard) h += `<p class="say">"성 안에서는 칼을 뽑지 마시오. 성문 밖은 그대의 책임이오. 해골들은 남쪽 강가와 북서쪽 황야로 갈수록 강해지오."</p>`;
+      if (T === 'quest') h += `<div class="qsec">${n.quests.map(x => questRow(QBY[x.id], x.st, x.prog, true)).join('')}</div>`;
+      else if (T === 'bank') {
+        const g = (ids, src, n2) => { let hh = ''; const len = Math.max(n2, Math.ceil((ids.length + 1) / 6) * 6); for (let i = 0; i < len; i++) { const it = ids[i]; hh += it ? `<div class="slot" data-bank="${src}" data-i="${i}" data-id="${it.id}"><img src="${itemIcon(MF, it.id)}" alt="" draggable="false">${it.n > 1 ? `<span class="n">${it.n}</span>` : ''}${it.enh ? `<span class="plus">+${it.enh}</span>` : ''}</div>` : '<div class="slot empty"></div>'; } return `<div class="grid">${hh}</div>`; };
+        h += `<p class="say">"맡긴 물건은 안전합니다. 칸을 누르면 통째로 옮깁니다."</p><div class="qh">창고 <span class="ds">(${n.bankItems.length}/${BANK_SIZE})</span></div>${g(n.bankItems, 'bank', 12)}<div class="qh" style="margin-top:8px">가방</div>${g(state.inv, 'inv', 6)}<div class="bankgold"><span>창고 금화 <b>${n.bankGold}</b></span><span>소지 금화 <b>${state.gold}</b></span><input type="number" id="bankAmt" min="1" placeholder="금액" inputmode="numeric"><button class="btn" data-act="bdep">입금</button><button class="btn" data-act="bwd">출금</button><button class="btn" data-act="bdepall">전부 입금</button></div>`;
+      }
+      else if (n.guard && !T) h += `<p class="say">"성 안에서는 칼을 뽑지 마시오. 성문 밖은 그대의 책임이오. 해골들은 남쪽 강가와 북서쪽 황야로 갈수록 강해지오."</p>`;
       else if (T === 'buy') h += n.shop.map(id => { const b = ITEMS[id]; return `<div class="row"><img class="ri" src="${itemIcon(MF, id)}" alt=""><div><div class="nm">${b.name}</div><div class="ds">${itemDesc({ id })}</div></div><div class="pr">${b.price} G<button class="btn" data-act="buy" data-id="${id}" ${state.gold < b.price ? 'disabled' : ''}>구매</button>${b.stack ? `<button class="btn" data-act="buy10" data-id="${id}" ${state.gold < b.price * 10 ? 'disabled' : ''}>×10</button>` : ''}</div></div>`; }).join('');
       else if (T === 'sell') h += state.inv.map((it, i) => `<div class="row"><img class="ri" src="${itemIcon(MF, it.id)}" alt=""><div><div class="nm">${esc(itemName(it))}${it.n > 1 ? ` <span class="ds">×${it.n}</span>` : ''}</div><div class="ds">${itemDesc(it)}</div></div><div class="pr">${sellPrice(it)} G<button class="btn" data-act="sellone" data-i="${i}">판매</button>${it.n > 1 ? `<button class="btn" data-act="sellall" data-i="${i}">전부</button>` : ''}</div></div>`).join('') || '<p class="say">팔 물건이 없습니다.</p>';
       else if (T === 'craft') h += `<p class="say">"재료를 가져오면 좋은 걸 벼려 주지."</p>` + n.craft.map(id => { const b = ITEMS[id]; let ok = true; const need = Object.entries(b.craft).map(([k2, v]) => { const have = k2 === 'gold' ? state.gold : state.inv.filter(x => x.id === k2).reduce((a, x) => a + x.n, 0); if (have < v) ok = false; return `<b class="${have >= v ? 'ok' : 'no'}">${k2 === 'gold' ? '금화' : ITEMS[k2].name} ${k2 === 'gold' ? v : have + '/' + v}</b>`; }).join(' · '); return `<div class="row"><img class="ri" src="${itemIcon(MF, id)}" alt=""><div><div class="nm">${b.name}</div><div class="ds">${itemDesc({ id })}</div><div class="need">${need}</div></div><div class="pr"><button class="btn" data-act="craft" data-id="${id}" ${ok ? '' : 'disabled'}>제작</button></div></div>`; }).join('');
@@ -100,11 +117,17 @@ export function createUI({ MF, send, log }) {
         let btn = m[11] === n.master ? '<span class="ds">이미 이 길을 걷고 있습니다</span>' : m[11] !== 'commoner' ? '<span class="ds">이미 다른 길을 걷고 있습니다</span>' : m[4] < CLASS_LEVEL ? `<span class="ds">레벨 ${CLASS_LEVEL} 필요 (현재 ${m[4]})</span>` : `<button class="btn" data-act="job">전직</button>`;
         h += `<p class="say">${c.master}: "${c.desc}"</p><div class="row"><div class="ic">${c.name[0]}</div><div><div class="nm">${c.name}</div><div class="ds">전직 즉시 HP ${s10.maxHp - s10c.maxHp >= 0 ? '+' : ''}${s10.maxHp - s10c.maxHp} · MP +${s10.maxMp - s10c.maxMp} · 공격 +${s10.atk - s10c.atk} · 방어 +${s10.def - s10c.def}${c.ranged ? ' · 원거리 공격' : ''}${c.aspd ? ' · 공격속도 +25%' : ''}</div><div class="need">기술 <b class="ok">${c.skill.name}</b> — ${c.skill.desc} (MP ${c.skill.mp}, ${c.skill.cd / 1000}초)</div></div><div class="pr">${btn}</div></div>`;
       }
+      else if (T === 'adv') {
+        const advId = ADV_OF[n.master]; const a = ADV[advId]; const m = state.me;
+        let btn = m[11] === advId ? '<span class="ds">이미 승급했습니다</span>' : m[11] !== n.master ? `<span class="ds">${CLASSES[n.master].name}만 승급할 수 있습니다</span>` : m[4] < ADV_LEVEL ? `<span class="ds">레벨 ${ADV_LEVEL} 필요 (현재 ${m[4]})</span>` : `<button class="btn" data-act="advance">승급</button>`;
+        h += `<p class="say">${a.master}: "${a.desc}"</p><div class="row"><div class="ic">${a.name[0]}</div><div><div class="nm">${a.name} <span class="ds">(2차 전직)</span></div><div class="ds">승급 즉시 ${Object.entries(a.bonus).map(([k2, v]) => ({ hp: 'HP', mp: 'MP', atk: '공격', def: '방어' }[k2]) + ' +' + v).join(' · ')}${a.dmg ? ` · 피해 ×${a.dmg}` : ''}${a.aspd ? ' · 공격속도 +40%' : ''}</div><div class="need">기술 <b class="ok">${a.skill2.name}</b> — ${a.skill2.desc} (MP ${a.skill2.mp}, ${a.skill2.cd / 1000}초, D 키)</div></div><div class="pr">${btn}</div></div>`;
+      }
       else if (T === 'atone') { const m = state.me; const cost = Math.max(0, -m[10]) * 150; h += `<p class="say">"성벽 밖에서 흘린 피는 영혼에 남습니다. 헌금으로 죄를 씻을 수 있습니다."</p><div class="row"><div class="ic">속</div><div><div class="nm">속죄</div><div class="ds">성향을 0으로 되돌립니다 (현재 ${m[10]})</div></div><div class="pr">${cost} G<button class="btn" data-act="atone" ${m[10] >= 0 || state.gold < cost ? 'disabled' : ''}>헌금</button></div></div>`; }
       body.innerHTML = h;
     }
   }
   function onClick(k, e) {
+    const bk = e.target.closest('[data-bank]'); if (bk && k === 'npc') { send({ t: bk.dataset.bank === 'bank' ? 'bankOut' : 'bankIn', npc: state.npc.id, i: +bk.dataset.i, id: bk.dataset.id }); return; }
     const s = e.target.closest('[data-i],[data-slot],[data-enh]'); const b = e.target.closest('button');
     if (b && b.dataset.tab) { state.npcTab = b.dataset.tab; render('npc'); return; }
     if (b && b.dataset.act) return act(k, b.dataset.act, b.dataset);
@@ -131,7 +154,9 @@ export function createUI({ MF, send, log }) {
     else if (a === 'sellone' || a === 'sellall') { const x = state.inv[+d.i]; if (x) send({ t: 'sell', npc: n.id, i: +d.i, id: x.id, n: a === 'sellall' ? x.n : 1 }); }
     else if (a === 'craft') send({ t: 'craft', npc: n.id, item: d.id });
     else if (a === 'enh') { const [src, v] = state.selEnh.split(':'); if (src === 'eq') send({ t: 'enhance', npc: n.id, src, slot: v }); else { const x = state.inv[+v]; if (x) send({ t: 'enhance', npc: n.id, src, i: +v, id: x.id }); } }
-    else if (a === 'rest' || a === 'job' || a === 'atone') send({ t: a, npc: n.id });
+    else if (a === 'rest' || a === 'job' || a === 'advance' || a === 'atone') send({ t: a, npc: n.id });
+    else if (a === 'qaccept' || a === 'qdone') send({ t: a, npc: n.id, q: d.q });
+    else if (a === 'bdep' || a === 'bwd' || a === 'bdepall') { const inp = document.getElementById('bankAmt'); const v = a === 'bdepall' ? state.gold : Math.floor(+(inp && inp.value) || 0); if (v > 0) send({ t: 'bankGold', npc: n.id, v: a === 'bwd' ? -v : v }); }
   }
   return {
     state, toggle, show, hide, closeAll, anyOpen,
@@ -143,7 +168,9 @@ export function createUI({ MF, send, log }) {
       for (const k of Object.keys(wins)) render(k);
     },
     setMe(me) { const changed = !state.me || state.me[4] !== me[4] || state.me[8] !== me[8] || state.me[9] !== me[9] || state.me[11] !== me[11] || state.me[10] !== me[10]; state.me = me; if (changed) for (const k of ['char', 'eq', 'npc']) render(k); },
-    openNpc(n) { state.npc = n; state.npcTab = null; state.selEnh = null; show('npc'); },
+    openNpc(n) { const same = state.npc && state.npc.id === n.id; state.npc = n; if (!same) { state.npcTab = null; state.selEnh = null; } show('npc'); },
+    setQuests(q) { state.quests = q; render('quest'); },
+    closeNpc() { if (!wins.npc.hidden) { wins.npc.hidden = true; state.npc = null; } },
     firstOf(id) { return state.inv.findIndex(x => x.id === id); },
   };
 }

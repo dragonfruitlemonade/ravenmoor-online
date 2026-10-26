@@ -36,6 +36,15 @@ export const MONSTERS = {
   skel_rogue:   { name: '해골 도적',   level: 5,  hp: 95,  atk: 13, def: 4,  exp: 42,  gold: [8, 16],   speed: 3.0, aggro: 6, ring: [26, 42], count: 26 },
   skel_warrior: { name: '해골 전사',   level: 9,  hp: 180, atk: 21, def: 9,  exp: 90,  gold: [15, 30],  speed: 2.5, aggro: 6, ring: [36, 54], count: 22 },
   skel_mage:    { name: '해골 마법사', level: 13, hp: 210, atk: 30, def: 8,  exp: 150, gold: [28, 50],  speed: 2.4, aggro: 7, ring: [44, 62], count: 14, ranged: 4.5 },
+  // bosses: fixed lairs, long respawn, telegraphed skills (see server bossAI)
+  boss_fang:    { name: '회색 송곳니',   level: 7,  hp: 650,  atk: 20, def: 6,  exp: 420,  gold: [80, 140],  speed: 3.6, aggro: 8, fixed: [84.5, 92.5], count: 1, boss: true, sprite: 'skel_rogue', scale: 1.45, respawn: 180000,
+    skills: [{ k: 'howl', cd: 14000 }, { k: 'lunge', cd: 6000, mul: 1.8 }] },
+  boss_paladin: { name: '타락한 성기사', level: 12, hp: 1400, atk: 36, def: 14, exp: 1100, gold: [160, 260], speed: 2.6, aggro: 8, fixed: [96.5, 38.5], count: 1, boss: true, sprite: 'skel_warrior', scale: 1.5, respawn: 240000,
+    skills: [{ k: 'slam', cd: 9000, mul: 2.4, r: 2.0, wind: 1000 }] },
+  boss_chief:   { name: '족장 크루쉬',   level: 18, hp: 2600, atk: 52, def: 18, exp: 2400, gold: [300, 520], speed: 3.0, aggro: 8, fixed: [31.5, 32.5], count: 1, boss: true, sprite: 'barbarian', scale: 1.6, respawn: 300000,
+    skills: [{ k: 'charge', cd: 8000, mul: 2.0 }, { k: 'roar', cd: 14000, r: 3 }] },
+  boss_lich:    { name: '리치 왕',       level: 25, hp: 4200, atk: 70, def: 22, exp: 5200, gold: [500, 900], speed: 2.3, aggro: 9, fixed: [20.5, 100.5], count: 1, boss: true, sprite: 'skel_mage', scale: 1.7, ranged: 5, respawn: 420000,
+    skills: [{ k: 'slam', cd: 10000, mul: 2.8, r: 2.6, wind: 1100 }, { k: 'summon', cd: 20000 }, { k: 'regen', cd: 25000 }] },
 };
 
 export const LOOKS = { knight: '기사', barbarian: '야만전사', rogue: '도적', mage: '마법사' };
