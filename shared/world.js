@@ -40,6 +40,11 @@ export const MONSTERS = {
   skel_rogue:   { name: '해골 도적',   level: 5,  hp: 120, atk: 24, def: 5,  exp: 42,  gold: [8, 16],   speed: 3.0, aggro: 6, ring: [38, 56], count: 30 },
   skel_warrior: { name: '해골 전사',   level: 9,  hp: 240, atk: 40, def: 11,  exp: 90,  gold: [15, 30],  speed: 2.5, aggro: 6, ring: [48, 68], count: 26 },
   skel_mage:    { name: '해골 마법사', level: 13, hp: 300, atk: 62, def: 10,  exp: 150, gold: [28, 50],  speed: 2.4, aggro: 7, ring: [56, 78], count: 16, ranged: 4.5 },
+  // human outlaws: tinted variants of the adventurer sprites (see client VARIANTS); they fill the gaps between skeleton tiers and above
+  bandit:       { name: '산적',        level: 4,  hp: 100, atk: 20, def: 4,  exp: 36,  gold: [10, 20],  speed: 3.2, aggro: 6, ring: [30, 48], count: 18, sprite: 'bandit' },
+  deserter:     { name: '탈영 기사',   level: 11, hp: 320, atk: 46, def: 16, exp: 125, gold: [25, 45],  speed: 2.7, aggro: 6, ring: [50, 70], count: 14, sprite: 'deserter' },
+  cultist:      { name: '이단 사제',   level: 15, hp: 340, atk: 70, def: 12, exp: 190, gold: [35, 60],  speed: 2.5, aggro: 7, ring: [60, 84], count: 10, sprite: 'cultist', ranged: 4.5 },
+  brute:        { name: '황야 광전사', level: 20, hp: 650, atk: 78, def: 20, exp: 320, gold: [50, 90],  speed: 3.0, aggro: 7, ring: [68, 86], count: 8,  sprite: 'brute' },
   // bosses: fixed lairs, long respawn, telegraphed skills (see server bossAI)
   boss_fang:    { name: '회색 송곳니',   level: 7,  hp: 650,  atk: 20, def: 6,  exp: 420,  gold: [80, 140],  speed: 3.6, aggro: 8, fixed: [120.5, 136.5], count: 1, boss: true, sprite: 'skel_rogue', scale: 1.45, respawn: 180000,
     skills: [{ k: 'howl', cd: 14000 }, { k: 'lunge', cd: 6000, mul: 1.8 }] },

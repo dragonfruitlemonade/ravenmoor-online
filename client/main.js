@@ -106,15 +106,20 @@ function drawStatic(o) { const im = img(o.m.file); if (!im) return; const [sx, s
 const ents = new Map();   // id -> {id,kind,name,sprite,level,flag,maxHp,x,y,rx,ry,dir,st,hp,atkT,hitT,deadT,say,sayT}
 let myId = 0, me = null, meStats = null, online = 0;
 const inParty = id => !!(party && party.id && party.members.some(mm => mm.id === id));
+// tinted variants of the baked adventurer sheets, used for human outlaws (no extra baking needed)
+const VARIANTS = { bandit: ['rogue', 'rgba(150,30,30,.5)'], deserter: ['knight', 'rgba(25,25,45,.55)'], cultist: ['mage', 'rgba(95,20,120,.55)'], brute: ['barbarian', 'rgba(40,80,30,.5)'] };
+const tinted = new Map();
+function charDef(sprite) { return MF.characters[sprite] || (VARIANTS[sprite] && MF.characters[VARIANTS[sprite][0]]) || null; }
+function sheet(sprite, file) { const v = VARIANTS[sprite]; const base = img(file); if (!v || !base) return base; const key = sprite + ':' + file; let cv = tinted.get(key); if (cv) return cv; cv = document.createElement('canvas'); cv.width = base.naturalWidth; cv.height = base.naturalHeight; const g = cv.getContext('2d'); g.drawImage(base, 0, 0); g.globalCompositeOperation = 'source-atop'; g.fillStyle = v[1]; g.fillRect(0, 0, cv.width, cv.height); tinted.set(key, cv); return cv; }
 function entColor(e) { if (e.id === myId) return e.flag === 2 ? '#ff6a5a' : '#ffd86b'; if (e.kind === 1) return inParty(e.id) ? '#8fe3a0' : e.flag === 2 ? '#ff6a5a' : e.flag === 1 ? '#c99cff' : '#cfe2ff'; if (e.kind === 4) return '#a8e0a0'; return '#e8dcc0'; }
 function charFrame(e, t) {
-  const C = MF.characters[e.sprite]; if (!C) return null;
+  const C = charDef(e.sprite); if (!C) return null;
   let anim = 'idle', at = (t / 1000) % 100;
   if (e.st === 4) { anim = 'death'; at = (t - e.deadT) / 1000; }
   else if (t - e.atkT < 620) { anim = 'attack'; at = (t - e.atkT) / 1000 * 1.6; }
   else if (e.st === 1) { anim = 'walk'; at = t / 1000 * 1.55; }
   else if (t - e.hitT < 380) { anim = 'hit'; at = (t - e.hitT) / 1000 * 1.6; }
-  const A = C.anims[anim]; if (!A) return null; const im = img(A.file); if (!im) return null;
+  const A = C.anims[anim]; if (!A) return null; const im = sheet(e.sprite, A.file); if (!im) return null;
   let f = Math.floor(at / A.dur * A.frames); f = A.loop ? ((f % A.frames) + A.frames) % A.frames : clamp(f, 0, A.frames - 1);
   return { im, C, f };
 }
@@ -137,7 +142,7 @@ function drawEntity(e, t) {
   if (e.sf & 1) { for (let i = 0; i < 3; i++) { const a = t / 200 + i * 2.1; ctx.fillStyle = '#ffe680'; ctx.beginPath(); ctx.arc(sx + Math.cos(a) * 10, sy - headY(e) - 2 + Math.sin(a) * 3, 2, 0, 7); ctx.fill(); } }
   if (e.sf & 2 && (t / 150 | 0) % 3 === 0) { ctx.fillStyle = 'rgba(200,30,30,.8)'; ctx.fillRect(sx - 2 + Math.sin(t / 90) * 6, sy - 20 - (t / 10 % 20), 2, 4); }
 }
-function headY(e) { const C = MF.characters[e.sprite]; return C ? C.ay * SC * .62 * (e.scale || 1) : 50; }
+function headY(e) { const C = charDef(e.sprite); return C ? C.ay * SC * .62 * (e.scale || 1) : 50; }
 
 // ───────────────────────── effects
 const SETTINGS = { names: true, dmg: true, mmBig: false, hideOthersNames: false }; try { Object.assign(SETTINGS, JSON.parse(localStorage.getItem('rm-settings') || '{}')); } catch {}
