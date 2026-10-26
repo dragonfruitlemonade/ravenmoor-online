@@ -2,6 +2,7 @@
 import { MAP, TILE_W as TW, TILE_H as TH, G, TOWN, BUILDINGS, LOOKS, buildWorld, isSafe, noise } from '/shared/world.js';
 import { ITEMS, CLASSES, classInfo } from '/shared/rules.js';
 import { createUI, iconSrc } from '/client/ui.js';
+import { initAudio, toggleMute, isMuted, sfx, sfxAt, setAmbience } from '/client/audio.js';
 
 const $ = id => document.getElementById(id);
 const canvas = $('game'), ctx = canvas.getContext('2d');
@@ -165,28 +166,30 @@ function onMsg(m) {
     me = ents.get(myId); meStats = m.me; ui.setMe(m.me); online = m.e.filter(e => ents.get(e[0])?.kind === 1).length; return;
   }
   if (m.t === 'ev') {
-    if (m.k === 'atk') { const a = ents.get(m.a), b = ents.get(m.b); if (a) a.atkT = t; if (m.r && a && b) bolts.push({ a, b, t0: t, dur: 120 + Math.hypot(a.x - b.x, a.y - b.y) * 60 }); }
-    else if (m.k === 'dmg') { const b = ents.get(m.b); if (b) { b.hitT = t; floats.push({ x: b.rx, y: b.ry, h: headY(b), txt: String(m.v), col: m.b === myId ? '#ff7b6b' : m.c ? '#ffd86b' : '#ffffff', big: !!m.c, t0: t }); } }
-    else if (m.k === 'lvl') { const e = ents.get(m.id); if (e) { floats.push({ x: e.rx, y: e.ry, h: headY(e) + 10, txt: m.txt || 'LEVEL UP!', col: '#ffd86b', big: true, t0: t, life: 1800 }); rings.push({ x: e.rx, y: e.ry, col: '255,216,107', t0: t, life: 900, r: 40 }); } }
+    const dist = e => (e && me && me.rx !== null) ? Math.hypot(e.rx - me.rx, e.ry - me.ry) : 0;
+    if (m.k === 'atk') { const a = ents.get(m.a), b = ents.get(m.b); if (a) { a.atkT = t; sfxAt(m.r ? 'bolt' : 'swing', dist(a)); } if (m.r && a && b) bolts.push({ a, b, t0: t, dur: 120 + Math.hypot(a.x - b.x, a.y - b.y) * 60 }); }
+    else if (m.k === 'dmg') { const b = ents.get(m.b); if (b) { b.hitT = t; if (m.b === myId) sfx.hurt(); else sfxAt(m.c ? 'crit' : 'hit', dist(b)); floats.push({ x: b.rx, y: b.ry, h: headY(b), txt: String(m.v), col: m.b === myId ? '#ff7b6b' : m.c ? '#ffd86b' : '#ffffff', big: !!m.c, t0: t }); } }
+    else if (m.k === 'die') { const e = ents.get(m.id); if (e) sfxAt('die', dist(e)); }
+    else if (m.k === 'lvl') { const e = ents.get(m.id); if (e) { if (m.id === myId) sfx.level(); floats.push({ x: e.rx, y: e.ry, h: headY(e) + 10, txt: m.txt || 'LEVEL UP!', col: '#ffd86b', big: true, t0: t, life: 1800 }); rings.push({ x: e.rx, y: e.ry, col: '255,216,107', t0: t, life: 900, r: 40 }); } }
     else if (m.k === 'fx') {
       const e = ents.get(m.id);
-      if (m.fx === 'heal' || m.fx === 'mana') { if (e) { floats.push({ x: e.rx, y: e.ry, h: headY(e), txt: '+' + m.v, col: m.fx === 'heal' ? '#8fd79a' : '#7fb4ff', t0: t }); rings.push({ x: e.rx, y: e.ry, col: m.fx === 'heal' ? '143,215,154' : '127,180,255', t0: t, life: 600, r: 22 }); } }
-      else if (m.fx === 'fire') rings.push({ x: m.x, y: m.y, col: '255,140,40', t0: t, life: 700, r: 70, fill: true });
-      else if (m.fx === 'holy') rings.push({ x: m.x, y: m.y, col: '255,243,176', t0: t, life: 800, r: 95, fill: true });
-      else if (m.fx === 'tele' && e) rings.push({ x: e.rx, y: e.ry, col: '184,160,255', t0: t, life: 700, r: 30, fill: true });
-      else if ((m.fx === 'craft' || m.fx === 'enh_ok') && e) rings.push({ x: e.rx, y: e.ry, col: '255,216,107', t0: t, life: 800, r: 34 });
-      else if (m.fx === 'enh_fail' && e) rings.push({ x: e.rx, y: e.ry, col: '200,60,50', t0: t, life: 700, r: 30 });
-      else if (m.fx === 'stun' && e) floats.push({ x: e.rx, y: e.ry, h: headY(e), txt: '기절', col: '#c9d9ff', t0: t });
+      if (m.fx === 'heal' || m.fx === 'mana') { if (e) { if (m.id === myId) sfx.heal(); floats.push({ x: e.rx, y: e.ry, h: headY(e), txt: '+' + m.v, col: m.fx === 'heal' ? '#8fd79a' : '#7fb4ff', t0: t }); rings.push({ x: e.rx, y: e.ry, col: m.fx === 'heal' ? '143,215,154' : '127,180,255', t0: t, life: 600, r: 22 }); } }
+      else if (m.fx === 'fire') { sfx.fire(); rings.push({ x: m.x, y: m.y, col: '255,140,40', t0: t, life: 700, r: 70, fill: true }); }
+      else if (m.fx === 'holy') { sfx.heal(); rings.push({ x: m.x, y: m.y, col: '255,243,176', t0: t, life: 800, r: 95, fill: true }); }
+      else if (m.fx === 'tele' && e) { sfx.tele(); rings.push({ x: e.rx, y: e.ry, col: '184,160,255', t0: t, life: 700, r: 30, fill: true }); }
+      else if ((m.fx === 'craft' || m.fx === 'enh_ok') && e) { sfx.quest(); rings.push({ x: e.rx, y: e.ry, col: '255,216,107', t0: t, life: 800, r: 34 }); }
+      else if (m.fx === 'enh_fail' && e) { sfx.deny(); rings.push({ x: e.rx, y: e.ry, col: '200,60,50', t0: t, life: 700, r: 30 }); }
+      else if (m.fx === 'stun' && e) { sfxAt('stun', dist(e)); floats.push({ x: e.rx, y: e.ry, h: headY(e), txt: '기절', col: '#c9d9ff', t0: t }); }
       else if (m.fx === 'bleed' && e) floats.push({ x: e.rx, y: e.ry, h: headY(e), txt: '출혈', col: '#ff6a5a', t0: t });
       else if (m.fx === 'tele_slam') { tele.push({ k: 'slam', x: m.x, y: m.y, r: m.r, t0: t, life: m.ms }); if (e) floats.push({ x: e.rx, y: e.ry, h: headY(e), txt: '내려찍기!', col: '#ff9a6a', t0: t, life: m.ms }); }
       else if (m.fx === 'tele_charge') { tele.push({ k: 'charge', from: e, x: m.x, y: m.y, t0: t, life: m.ms + 800 }); if (e) floats.push({ x: e.rx, y: e.ry, h: headY(e), txt: '돌진!', col: '#ff9a6a', t0: t }); }
-      else if (m.fx === 'slam') rings.push({ x: m.x, y: m.y, col: '200,170,130', t0: t, life: 500, r: m.r * 32, fill: true });
-      else if (m.fx === 'roar' || m.fx === 'summon') { rings.push({ x: m.x, y: m.y, col: m.fx === 'roar' ? '255,180,80' : '160,120,255', t0: t, life: 900, r: 100, fill: true }); if (e) floats.push({ x: e.rx, y: e.ry, h: headY(e), txt: m.fx === 'roar' ? '포효!' : '소환!', col: '#ffd86b', big: true, t0: t }); }
-      else if (m.fx === 'chain' && e) { const f = ents.get(m.from); if (f) chainsFx.push({ a: f, b: e, t0: t }); rings.push({ x: e.rx, y: e.ry, col: '160,210,255', t0: t, life: 400, r: 20 }); }
+      else if (m.fx === 'slam') { sfx.slam(); rings.push({ x: m.x, y: m.y, col: '200,170,130', t0: t, life: 500, r: m.r * 32, fill: true }); }
+      else if (m.fx === 'roar' || m.fx === 'summon') { sfx.roar(); rings.push({ x: m.x, y: m.y, col: m.fx === 'roar' ? '255,180,80' : '160,120,255', t0: t, life: 900, r: 100, fill: true }); if (e) floats.push({ x: e.rx, y: e.ry, h: headY(e), txt: m.fx === 'roar' ? '포효!' : '소환!', col: '#ffd86b', big: true, t0: t }); }
+      else if (m.fx === 'chain' && e) { sfx.chain(); const f = ents.get(m.from); if (f) chainsFx.push({ a: f, b: e, t0: t }); rings.push({ x: e.rx, y: e.ry, col: '160,210,255', t0: t, life: 400, r: 20 }); }
     }
     return;
   }
-  if (m.t === 'chat') { if (m.sys) addLog(m.msg, 'sys'); else { addLog(`<b>${esc(m.n)}</b> ${esc(m.msg)}`, m.id === myId ? 'me' : ''); const e = ents.get(m.id); if (e) { e.say = m.msg; e.sayT = t; } } }
+  if (m.t === 'chat') { if (m.sys) { addLog(m.msg, 'sys'); if (/의뢰 (수락|완료)|주웠습니다/.test(m.msg)) sfx[/주웠/.test(m.msg) ? (/금화/.test(m.msg) ? 'coin' : 'pickup') : 'quest'](); else if (/가득|부족|없습니다|없어|않습니다|없는/.test(m.msg)) sfx.deny(); } else { addLog(`<b>${esc(m.n)}</b> ${esc(m.msg)}`, m.id === myId ? 'me' : ''); const e = ents.get(m.id); if (e) { e.say = m.msg; e.sayT = t; } } }
 }
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 function addLog(html, cls) { const d = document.createElement('div'); d.className = cls || ''; d.innerHTML = html; const L = $('log'); L.appendChild(d); while (L.children.length > 40) L.firstChild.remove(); }
@@ -216,6 +219,7 @@ addEventListener('keydown', ev => {
   else if (k === 'h') send({ t: 'heal' });
   else if (k === 's') send({ t: 'skill', id: targetId || undefined });
   else if (k === 'd') send({ t: 'skill2' });
+  else if (k === 'm') { const mu = toggleMute(); addLog(mu ? '소리를 껐습니다.' : '소리를 켰습니다.', 'sys'); $('muteBtn').querySelector('small').textContent = mu ? '음소거' : '소리'; }
   else if (k === 'q') { ui.toggle('quest'); send({ t: 'quests' }); }
   else if (k === '1' || k === '2' || k === '3') { const id = { 1: 'hpPotion', 2: 'mpPotion', 3: 'scroll' }[k]; const i = ui.firstOf(id); if (i >= 0) send({ t: 'use', i, id }); else addLog(`${ITEMS[id].name}이(가) 없습니다.`, 'sys'); }
   else if (k === 'i') ui.toggle('inv'); else if (k === 'e') ui.toggle('eq'); else if (k === 'c') ui.toggle('char');
@@ -247,6 +251,7 @@ const ui = createUI({ MF, send: o => send(o), log: addLog });
   let saved = null; try { saved = localStorage.getItem('rm-token'); $('jname').value = localStorage.getItem('rm-name') || ''; } catch {}
   if (!$('jname').value) setMode('register'); else setMode('login');
   if (saved) { $('jerr').textContent = '저장된 로그인으로 접속 중…'; $('jbtn').disabled = true; connect(saved); }
+  addEventListener('pointerdown', initAudio, { once: true });
   $('joinform').addEventListener('submit', async ev => {
     ev.preventDefault(); $('jerr').textContent = ''; $('jbtn').disabled = true;
     const name = $('jname').value.trim(), password = $('jpass').value;
@@ -254,7 +259,7 @@ const ui = createUI({ MF, send: o => send(o), log: addLog });
       const r = await fetch('/api/' + (mode === 'login' ? 'login' : 'register'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name, password, look: pickedLook }) });
       const j = await r.json(); if (!r.ok) throw new Error(j.error || '실패했습니다.');
       try { localStorage.setItem('rm-token', j.token); localStorage.setItem('rm-name', name); } catch {}
-      connect(j.token);
+      initAudio(); connect(j.token);
     } catch (err) { $('jerr').textContent = err.message; $('jbtn').disabled = false; }
   });
   $('logout').onclick = async () => { let tk = null; try { tk = localStorage.getItem('rm-token'); localStorage.removeItem('rm-token'); } catch {} if (tk) await fetch('/api/logout', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ token: tk }) }); location.reload(); };
@@ -283,7 +288,7 @@ function hud() {
   $('online').textContent = `주변 ${online}명`; $('pcls').textContent = classInfo(meStats[11]).name; const sk = classInfo(meStats[11]).skill; $('skName').textContent = sk ? sk.name : '기술'; $('cdH').style.height = (100 * Math.min(1, meStats[12] / 5000)) + '%'; $('cdS').style.height = (sk ? 100 * Math.min(1, meStats[13] / meStats[14]) : 100) + '%';
   const sk2 = classInfo(meStats[11]).skill2; $('sk2Name').textContent = sk2 ? sk2.name : '기술2'; $('cdD').style.height = (sk2 ? 100 * Math.min(1, meStats[18] / meStats[19]) : 100) + '%';
   const bb = $('bossbar'); const tgb = ents.get(targetId); if (tgb && tgb.boss && tgb.st !== 4) { bb.hidden = false; $('bossname').textContent = `${tgb.name} · Lv ${tgb.level}`; $('bosshp').style.width = (100 * tgb.hp / tgb.maxHp) + '%'; $('bosshpt').textContent = `${tgb.hp} / ${tgb.maxHp}`; } else bb.hidden = true;
-  const hr = Math.floor((dayPhase * 24 + 6) % 24); $('clock').textContent = `${String(hr).padStart(2, '0')}시 ${nightLabel(dayPhase)}`;
+  const hr = Math.floor((dayPhase * 24 + 6) % 24); if (me) setAmbience({ fountain: Math.max(0, 1 - Math.hypot(me.x - 64, me.y - 64.5) / 10), night: Math.max(0, Math.sin((dayPhase - .25) * Math.PI * 2)), hour: hr, inTown: isSafe(me.x, me.y) }); $('clock').textContent = `${String(hr).padStart(2, '0')}시 ${nightLabel(dayPhase)}`;
   const cnt = id => ui.state.inv.filter(x => x.id === id).reduce((a, x) => a + x.n, 0); $('n1').textContent = cnt('hpPotion'); $('n2').textContent = cnt('mpPotion'); $('n3').textContent = cnt('scroll');
   const tg = ents.get(targetId); if (tg && tg.st !== 4) { $('target').hidden = false; $('tname').textContent = tg.name; $('tlv').textContent = `Lv ${tg.level}`; $('thpb').style.width = (100 * tg.hp / tg.maxHp) + '%'; } else $('target').hidden = true;
   $('dead').hidden = !(me && me.st === 4);
