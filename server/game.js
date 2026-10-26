@@ -29,7 +29,15 @@ export const STARTER = { gold: 300, inventory: [{ id: 'hpPotion', n: 5 }, { id: 
 
 // ── helpers
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
-function near(x, y, r, pred) { const out = []; for (const e of ents.values()) if (Math.abs(e.x - x) <= r && Math.abs(e.y - y) <= r && (!pred || pred(e))) out.push(e); return out; }
+// spatial hash, rebuilt once per tick; membership can lag a tick, so queries pad by one cell and re-check exact bounds
+const CELL = 8, grid = new Map(); let gridBuilt = false;
+function rebuildGrid() { grid.clear(); for (const e of ents.values()) { const k = ((e.x / CELL) | 0) * 1024 + ((e.y / CELL) | 0); let b = grid.get(k); if (!b) grid.set(k, b = []); b.push(e); } gridBuilt = true; }
+function near(x, y, r, pred) {
+  const out = []; if (!gridBuilt) rebuildGrid();
+  const x0 = ((x - r) / CELL | 0) - 1, x1 = ((x + r) / CELL | 0) + 1, y0 = ((y - r) / CELL | 0) - 1, y1 = ((y + r) / CELL | 0) + 1;
+  for (let cx = x0; cx <= x1; cx++) for (let cy = y0; cy <= y1; cy++) { const b = grid.get(cx * 1024 + cy); if (!b) continue; for (const e of b) if (Math.abs(e.x - x) <= r && Math.abs(e.y - y) <= r && ents.get(e.id) === e && (!pred || pred(e))) out.push(e); }
+  return out;
+}
 function broadcastNear(x, y, msg, r = VIEW_RADIUS) { const s = JSON.stringify(msg); for (const c of clients) if (c.player && Math.abs(c.player.x - x) <= r && Math.abs(c.player.y - y) <= r) c.sock.send(s); }
 function broadcastAll(msg) { const s = JSON.stringify(msg); for (const c of clients) if (c.player) c.sock.send(s); }
 function sendTo(p, msg) { if (p.client && p.client.sock.open) p.client.sock.send(JSON.stringify(msg)); }
@@ -69,13 +77,13 @@ function villagerAI(e, dt) { if (!e.path) { e.moving = false; if (now() > e.wand
 function spawnDrop(x, y, item, gold, owner) {
   const a = R() * Math.PI * 2, r = .3 + R() * .6; let dx = x + Math.cos(a) * r, dy = y + Math.sin(a) * r;
   if (W.block[Math.floor(dy) * MAP + Math.floor(dx)]) { dx = x; dy = y; }
-  const e = { id: nextId++, kind: 'drop', item, gold, x: dx, y: dy, owner: owner ? owner.id : 0, ownerUntil: now() + 10000, expires: now() + 120000, dir: 0, hp: 1, maxHp: 1, metaVer: 1,
+  const e = { id: nextId++, kind: 'drop', item, gold, x: dx, y: dy, owner: owner ? owner.id : 0, ownerParty: owner ? owner.partyId || 0 : 0, ownerUntil: now() + 10000, expires: now() + 120000, dir: 0, hp: 1, maxHp: 1, metaVer: 1,
     name: gold ? `금화 ${gold}` : itemName(item) + (item.n > 1 ? ` ×${item.n}` : ''), sprite: gold ? 'gold' : ITEMS[item.id].icon };
   ents.set(e.id, e); return e;
 }
 function tryPick(p, d) {
   if (!ents.has(d.id)) return;
-  if (d.owner && d.owner !== p.id && now() < d.ownerUntil) { sys(p, '아직 다른 사람의 전리품입니다. 잠시 후에 주울 수 있습니다.'); return; }
+  if (d.owner && d.owner !== p.id && now() < d.ownerUntil && !(d.ownerParty && p.partyId === d.ownerParty)) { sys(p, '아직 다른 사람의 전리품입니다. 잠시 후에 주울 수 있습니다.'); return; }
   if (d.gold) { p.gold += d.gold; sys(p, `금화 ${d.gold}을(를) 주웠습니다.`); }
   else { if (!addItem(p, d.item)) { sys(p, '가방이 가득 찼습니다.'); return; } sys(p, `${d.name}을(를) 주웠습니다.`); }
   ents.delete(d.id); invChanged(p);
@@ -381,7 +389,7 @@ let lastSnap = 0, lastSave = 0;
 setInterval(() => { for (const c of [...clients]) { if (!c.player && now() - c.lastMsg > 20000) { c.sock.close(); continue; } if (now() - c.sock.lastPong > 45000 && now() - c.lastMsg > 45000) { c.sock.close(); continue; } c.sock.ping(); } }, 15000).unref();
 const perf = { tickMs: 0, maxMs: 0, n: 0 };
 setInterval(() => {
-  const t0 = performance.now();
+  const t0 = performance.now(); rebuildGrid();
   const players = [...ents.values()].filter(isPlayer);
   for (const e of [...ents.values()]) {
     if (isPlayer(e)) { playerTick(e, DT); if (!e.dead) effectsTick(e); continue; }
@@ -406,9 +414,11 @@ function snapshot(c) {
   for (const e of near(p.x, p.y, VIEW_RADIUS)) {
     seen.add(e.id);
     if (c.known.get(e.id) !== e.metaVer) { c.known.set(e.id, e.metaVer); metas.push(meta(e)); }
-    const row = [e.id, Math.round(e.x * 100) / 100, Math.round(e.y * 100) / 100, e.dir, e.dead ? 4 : e.moving ? 1 : 0, Math.ceil(e.hp), (e.stunT > now() ? 1 : 0) | (e.fx && e.fx.bleed > now() ? 2 : 0)];
+    // row + key are computed once per entity per snapshot round and shared between clients
+    if (e._rowT !== lastSnap) { e._rowT = lastSnap; e._row = [e.id, Math.round(e.x * 100) / 100, Math.round(e.y * 100) / 100, e.dir, e.dead ? 4 : e.moving ? 1 : 0, Math.ceil(e.hp), (e.stunT > now() ? 1 : 0) | (e.fx && e.fx.bleed > now() ? 2 : 0)]; e._key = e._row.join(','); }
+    const row = e._row, key = e._key;
     // delta: skip rows identical to what this client already has (resent at least every 2 s as a safety net)
-    const key = row.join(','); const prev = c.last.get(e.id); if (prev && prev.k === key && now() - prev.t < 2000) continue; c.last.set(e.id, { k: key, t: now() }); list.push(row);
+    const prev = c.last.get(e.id); if (prev && prev.k === key && now() - prev.t < 2000) continue; c.last.set(e.id, { k: key, t: now() }); list.push(row);
   }
   const gone = []; for (const id of c.known.keys()) if (!seen.has(id)) { gone.push(id); c.known.delete(id); c.last.delete(id); }
   const cls = classInfo(p.cls);
@@ -502,7 +512,7 @@ export function onConnection(sock) {
       case 'toffer': social.tradeOffer(p, m.items, m.gold); break;
       case 'tconfirm': { const r = social.tradeConfirm(p); if (r) logEvent('trade', r.a, r.b, r); break; }
       case 'tcancel': social.cancelTrade(p); break;
-      case 'leaderboard': sendTo(p, { t: 'leaderboard', rows: leaderboardRows() }); break;
+      case 'leaderboard': sendTo(p, { t: 'leaderboard', rows: leaderboardRows(), guilds: guilds.ranking(10) }); break;
       case 'ping': sock.send(JSON.stringify({ t: 'pong', c: m.c, s: now() })); break;
     }
   }

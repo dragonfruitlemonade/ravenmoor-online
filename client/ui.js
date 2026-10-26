@@ -97,7 +97,7 @@ export function createUI({ MF, send, log }) {
         <div class="bankgold"><span>내 금화 <b>${state.gold}</b></span><input type="number" id="tradeGold" min="0" value="${tr.me.gold}" placeholder="금화"><button class="btn" data-act="tgold">금화 올리기</button><button class="btn" data-act="tclear">내리기</button><span style="flex:1"></span><button class="btn" data-act="tconfirm" ${tr.me.ok ? 'disabled' : ''}>확인</button><button class="btn" data-act="tcancel">취소</button></div>
         <p class="ds" style="margin:8px 0 0">양쪽이 모두 확인을 누르면 교환됩니다. 상대가 내용을 바꾸면 확인이 풀립니다.</p>`;
     } else if (k === 'board') {
-      body.innerHTML = `<table class="board"><tr><th>#</th><th>이름</th><th>레벨</th><th>직업</th><th>처치</th><th>성향</th></tr>${state.board.map((r, i) => `<tr class="${r.online ? 'on' : ''}"><td>${i + 1}</td><td>${esc(r.name)}${r.online ? ' <span class="ds">접속</span>' : ''}</td><td>${r.level}</td><td>${classInfo(r.cls).name}</td><td>${r.kills}</td><td class="${r.align < 0 ? 'no' : ''}">${r.align}</td></tr>`).join('')}</table>`;
+      body.innerHTML = `<table class="board"><tr><th>#</th><th>이름</th><th>레벨</th><th>직업</th><th>처치</th><th>성향</th></tr>${state.board.map((r, i) => `<tr class="${r.online ? 'on' : ''}"><td>${i + 1}</td><td>${esc(r.name)}${r.online ? ' <span class="ds">접속</span>' : ''}</td><td>${r.level}</td><td>${classInfo(r.cls).name}</td><td>${r.kills}</td><td class="${r.align < 0 ? 'no' : ''}">${r.align}</td></tr>`).join('')}</table>${(state.gboard || []).length ? `<div class="qh" style="margin-top:10px">길드 순위</div><table class="board"><tr><th>#</th><th>길드</th><th>인원</th><th>합계 레벨</th></tr>${state.gboard.map((g, i) => `<tr><td>${i + 1}</td><td>${esc(g.name)}</td><td>${g.members}</td><td>${g.power || 0}</td></tr>`).join('')}</table>` : ''}`;
     } else if (k === 'guild') {
       const g = state.guild; const RANK = { leader: '길드장', officer: '부길드장', member: '길드원' };
       if (!g) { body.innerHTML = hint('길드에 속해 있지 않습니다.') + `<p>길드는 10레벨부터 금화 3,000으로 만들 수 있습니다. 길드원끼리는 서로 공격할 수 없고, <b>/길 내용</b>으로 길드 채팅을 합니다.</p><div class="row"><input id="gname" class="in" placeholder="길드 이름 (2~8자)" maxlength="8"><button class="btn" data-g="생성">창설</button></div>`; title.textContent = '길드'; return; }
@@ -204,7 +204,7 @@ export function createUI({ MF, send, log }) {
     openNpc(n) { const same = state.npc && state.npc.id === n.id; state.npc = n; if (!same) { state.npcTab = null; state.selEnh = null; } show('npc'); },
     setQuests(q) { state.quests = q; render('quest'); },
     setTrade(tr) { if (!tr.id) { state.trade = null; hide('trade'); return; } state.trade = tr; if (wins.trade.hidden) show('trade'); else render('trade'); },
-    setBoard(rows) { state.board = rows; show('board'); },
+    setBoard(rows, g) { state.board = rows; state.gboard = g || []; show('board'); },
     closeNpc() { if (!wins.npc.hidden) { wins.npc.hidden = true; state.npc = null; } },
     firstOf(id) { return state.inv.findIndex(x => x.id === id); },
   };

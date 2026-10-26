@@ -203,7 +203,7 @@ function onMsg(m) {
   if (m.t === 'titles') { ui.state.titles = m; ui.render('char'); return; }
   if (m.t === 'guild') { ui.state.guild = m.id ? m : null; if (m.show) ui.show('guild'); else ui.render('guild'); return; }
   if (m.t === 'trade') { ui.setTrade(m); return; }
-  if (m.t === 'leaderboard') { ui.setBoard(m.rows); return; }
+  if (m.t === 'leaderboard') { ui.setBoard(m.rows, m.guilds || []); return; }
   if (m.t === 'invite') { showInvite(m); return; }
   if (m.t === 'pong') { latency = Math.round(performance.now() - m.c); return; }
   if (m.t === 'welcome') { reconnect.tries = 0; $('reconn').hidden = true; if (myId) { addLog('다시 연결되었습니다.', 'sys'); } myId = m.id; isAdminUser = !!m.admin; if (isAdminUser) $('adminLink').hidden = false; $('join').hidden = true; $('hud').hidden = false; $('pname').textContent = m.name; setTimeout(() => tip('move'), 1500); setTimeout(() => tip('bag'), 40000); addLog(`${m.name}님, 레이븐무어에 오신 것을 환영합니다. 성문은 동서남북 네 곳에 있습니다. 상인·스승·마을 사람은 이름을 눌러 말을 걸 수 있습니다.`, 'sys'); return; }

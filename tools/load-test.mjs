@@ -6,7 +6,7 @@ import fs from 'node:fs';
 
 const N = +process.argv[2] || 40, SECONDS = +process.argv[3] || 60, PORT = +process.argv[4] || 8099, DATA = '/tmp/rm-load';
 fs.rmSync(DATA, { recursive: true, force: true });
-const srv = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/index.js'], { env: { ...process.env, PORT, DATA_DIR: DATA, RATE_LIMIT: '0' }, stdio: ['ignore', 'pipe', 'inherit'] });
+const srv = spawn(process.execPath, [...(process.env.PROF ? ['--cpu-prof', '--cpu-prof-dir=/tmp/rm-prof'] : []), '--disable-warning=ExperimentalWarning', 'server/index.js'], { env: { ...process.env, PORT, DATA_DIR: DATA, RATE_LIMIT: '0' }, stdio: ['ignore', 'pipe', 'inherit'] });
 await new Promise(r => srv.stdout.once('data', r));
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const api = async (p, b) => (await fetch(`http://127.0.0.1:${PORT}${p}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(b) })).json();
@@ -40,4 +40,4 @@ const report = setInterval(async () => { const h = await health(); const dt = (D
 await sleep(SECONDS * 1000);
 clearInterval(timer); clearInterval(report);
 const h = await health(); console.log('final', h, `per-bot ${(bytes / Math.max(1, (Date.now() - last) / 1000) / 1024 / bots.length).toFixed(1)} KB/s`);
-for (const b of bots) b.ws.close(); srv.kill(); process.exit(0);
+for (const b of bots) b.ws.close(); srv.kill('SIGINT'); await sleep(1500); process.exit(0);
