@@ -375,7 +375,9 @@ export const raidInfo = () => raid ? { gate: raid.gate.dir, left: raid.left, unt
 
 let lastSnap = 0, lastSave = 0;
 setInterval(() => { for (const c of [...clients]) { if (!c.player && now() - c.lastMsg > 20000) { c.sock.close(); continue; } if (now() - c.sock.lastPong > 45000 && now() - c.lastMsg > 45000) { c.sock.close(); continue; } c.sock.ping(); } }, 15000).unref();
+const perf = { tickMs: 0, maxMs: 0, n: 0 };
 setInterval(() => {
+  const t0 = performance.now();
   const players = [...ents.values()].filter(isPlayer);
   for (const e of [...ents.values()]) {
     if (isPlayer(e)) { playerTick(e, DT); if (!e.dead) effectsTick(e); continue; }
@@ -388,6 +390,7 @@ setInterval(() => {
   }
   if (now() - lastSnap >= 1000 / SNAP_HZ) { lastSnap = now(); for (const c of clients) if (c.player) { if (c.player.invDirty) sendInv(c.player); snapshot(c); } }
   if (now() - lastSave >= 10000) { lastSave = now(); for (const p of players) if (p.saveDirty) { p.saveDirty = false; try { saveCharacter(p); } catch (err) { console.error('save failed', err); } } }
+  const ms = performance.now() - t0; perf.tickMs += (ms - perf.tickMs) * .05; if (ms > perf.maxMs) perf.maxMs = ms; if (++perf.n % 1200 === 0) perf.maxMs = ms;
 }, 1000 / TICK_HZ);
 
 function meta(e) {
@@ -399,9 +402,11 @@ function snapshot(c) {
   for (const e of near(p.x, p.y, VIEW_RADIUS)) {
     seen.add(e.id);
     if (c.known.get(e.id) !== e.metaVer) { c.known.set(e.id, e.metaVer); metas.push(meta(e)); }
-    list.push([e.id, Math.round(e.x * 100) / 100, Math.round(e.y * 100) / 100, e.dir, e.dead ? 4 : e.moving ? 1 : 0, Math.ceil(e.hp), (e.stunT > now() ? 1 : 0) | (e.fx && e.fx.bleed > now() ? 2 : 0)]);
+    const row = [e.id, Math.round(e.x * 100) / 100, Math.round(e.y * 100) / 100, e.dir, e.dead ? 4 : e.moving ? 1 : 0, Math.ceil(e.hp), (e.stunT > now() ? 1 : 0) | (e.fx && e.fx.bleed > now() ? 2 : 0)];
+    // delta: skip rows identical to what this client already has (resent at least every 2 s as a safety net)
+    const key = row.join(','); const prev = c.last.get(e.id); if (prev && prev.k === key && now() - prev.t < 2000) continue; c.last.set(e.id, { k: key, t: now() }); list.push(row);
   }
-  const gone = []; for (const id of c.known.keys()) if (!seen.has(id)) { gone.push(id); c.known.delete(id); }
+  const gone = []; for (const id of c.known.keys()) if (!seen.has(id)) { gone.push(id); c.known.delete(id); c.last.delete(id); }
   const cls = classInfo(p.cls);
   c.sock.send(JSON.stringify({ t: 'snap', s: now(), e: list, m: metas, g: gone, day: +dayPhase().toFixed(4), qm: questMarks(p), raid: raid ? [raid.gate.dir, raid.left, Math.max(0, Math.round((raid.until - now()) / 1000))] : 0,
     me: [Math.ceil(p.hp), p.maxHp, Math.floor(p.mp), p.maxMp, p.level, p.exp, expNeed(p.level), p.gold, p.atk, p.def, p.align, p.cls, Math.max(0, p.healT - now()), Math.max(0, p.skillT - now()), cls.skill ? cls.skill.cd : 0, p.atkSpeed, p.range, p.kills, Math.max(0, (p.skill2T || 0) - now()), cls.skill2 ? cls.skill2.cd : 0, p.fx.bless > now() ? 1 : 0, p.partyId || 0] }));
@@ -412,7 +417,7 @@ const online = new Map();   // accountId -> player
 const guilds = createGuilds({ online, sys, sendTo, findPlayerByName, now, logEvent });
 const market = createMarket({ online, sys, addItem, invChanged, now, logEvent });
 export function onConnection(sock) {
-  const c = { sock, player: null, known: new Map(), chatT: 0, msgs: 0, winT: now() };
+  const c = { sock, player: null, known: new Map(), last: new Map(), chatT: 0, msgs: 0, winT: now() };
   clients.add(c);
   function handle(raw) {
     if (now() - c.winT > 1000) { c.winT = now(); c.msgs = 0; } if (++c.msgs > 40) return;   // flood guard
@@ -517,4 +522,4 @@ function equip(p, i, id) {
 import { leaderboard } from './admin.js';
 function leaderboardRows() { return leaderboard(20).map(r => ({ name: r.name, level: r.level, cls: r.cls, kills: r.kills, align: r.align, online: !!findPlayerByName(r.name) })); }
 export function saveAll() { for (const e of ents.values()) if (isPlayer(e)) try { saveCharacter(e); } catch {} }
-export function stats() { let players = 0, monsters = 0, drops = 0; for (const e of ents.values()) { if (isPlayer(e)) players++; else if (isMonster(e)) monsters++; else if (e.kind === 'drop') drops++; } return { players, monsters, drops }; }
+export function stats() { let players = 0, monsters = 0, drops = 0; for (const e of ents.values()) { if (isPlayer(e)) players++; else if (isMonster(e)) monsters++; else if (e.kind === 'drop') drops++; } return { players, monsters, drops, tickMs: +perf.tickMs.toFixed(2), tickMaxMs: +perf.maxMs.toFixed(1), mem: Math.round(process.memoryUsage().rss / 1048576) }; }

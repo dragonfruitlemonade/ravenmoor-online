@@ -18,7 +18,8 @@ const PORT = +process.env.PORT || 8080;
 
 // simple per-IP limiter for the account endpoints: 10 attempts per 5 minutes
 const attempts = new Map();
-function limited(ip) { const t = Date.now(); const a = (attempts.get(ip) || []).filter(x => t - x < 300_000); a.push(t); attempts.set(ip, a); return a.length > 10; }
+const RATE_LIMIT = process.env.RATE_LIMIT === '0' ? Infinity : 10;   // RATE_LIMIT=0 disables it (load tests)
+function limited(ip) { const t = Date.now(); const a = (attempts.get(ip) || []).filter(x => t - x < 300_000); a.push(t); attempts.set(ip, a); return a.length > RATE_LIMIT; }
 setInterval(() => { const t = Date.now(); for (const [k, v] of attempts) if (!v.some(x => t - x < 300_000)) attempts.delete(k); }, 60_000).unref();
 
 function json(res, code, obj) { res.writeHead(code, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }); res.end(JSON.stringify(obj)); }

@@ -7,6 +7,7 @@
   "scripts": {
     "start": "node --disable-warning=ExperimentalWarning server/index.js",
     "test": "node --disable-warning=ExperimentalWarning tools/test-multiplayer.mjs",
+    "load": "node --disable-warning=ExperimentalWarning tools/load-test.mjs 40 60",
     "bake": "node tools/bake/bake.cjs",
     "fetch-assets": "bash tools/fetch-assets.sh"
   },
