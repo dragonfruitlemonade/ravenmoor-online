@@ -36,10 +36,10 @@ export const BUILDINGS = [
 
 // Monster tiers by distance from the town centre.
 export const MONSTERS = {
-  skel_minion:  { name: '해골 졸개',   level: 2,  hp: 50,  atk: 8,  def: 2,  exp: 20,  gold: [3, 9],    speed: 2.6, aggro: 5, ring: [28, 44], count: 40 },
-  skel_rogue:   { name: '해골 도적',   level: 5,  hp: 95,  atk: 13, def: 4,  exp: 42,  gold: [8, 16],   speed: 3.0, aggro: 6, ring: [38, 56], count: 30 },
-  skel_warrior: { name: '해골 전사',   level: 9,  hp: 180, atk: 21, def: 9,  exp: 90,  gold: [15, 30],  speed: 2.5, aggro: 6, ring: [48, 68], count: 26 },
-  skel_mage:    { name: '해골 마법사', level: 13, hp: 210, atk: 30, def: 8,  exp: 150, gold: [28, 50],  speed: 2.4, aggro: 7, ring: [56, 78], count: 16, ranged: 4.5 },
+  skel_minion:  { name: '해골 졸개',   level: 2,  hp: 60,  atk: 13, def: 2,  exp: 20,  gold: [3, 9],    speed: 2.6, aggro: 5, ring: [28, 44], count: 40 },
+  skel_rogue:   { name: '해골 도적',   level: 5,  hp: 120, atk: 24, def: 5,  exp: 42,  gold: [8, 16],   speed: 3.0, aggro: 6, ring: [38, 56], count: 30 },
+  skel_warrior: { name: '해골 전사',   level: 9,  hp: 240, atk: 40, def: 11,  exp: 90,  gold: [15, 30],  speed: 2.5, aggro: 6, ring: [48, 68], count: 26 },
+  skel_mage:    { name: '해골 마법사', level: 13, hp: 300, atk: 62, def: 10,  exp: 150, gold: [28, 50],  speed: 2.4, aggro: 7, ring: [56, 78], count: 16, ranged: 4.5 },
   // bosses: fixed lairs, long respawn, telegraphed skills (see server bossAI)
   boss_fang:    { name: '회색 송곳니',   level: 7,  hp: 650,  atk: 20, def: 6,  exp: 420,  gold: [80, 140],  speed: 3.6, aggro: 8, fixed: [120.5, 136.5], count: 1, boss: true, sprite: 'skel_rogue', scale: 1.45, respawn: 180000,
     skills: [{ k: 'howl', cd: 14000 }, { k: 'lunge', cd: 6000, mul: 1.8 }] },
