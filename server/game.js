@@ -6,6 +6,7 @@ import { accountForToken, loadCharacter, saveCharacter } from './db.js';
 import { createSocial } from './social.js';
 import { adminCommand, logEvent, banInfo, isAdmin } from './admin.js';
 import { createGuilds } from './guild.js';
+import { createMarket } from './market.js';
 
 const W = buildWorld();
 const DT = 1 / TICK_HZ;
@@ -204,7 +205,7 @@ function useSkill(p, targetId) {
 // ── NPC services
 function npcFor(p, npcId) { const n = npcById[npcId]; if (!n) return null; if (dist(p, n) > 3.2) { sys(p, `${n.name}에게 더 가까이 가세요.`); return null; } return n; }
 function talkTo(p, n) { face(p, n); if (n.villager) { n.dir = dirOf(p.x - n.x, p.y - n.y); n.path = null; n.wanderT = now() + 6000; sys(p, `${n.name}: "${n.lines[Math.floor(R() * n.lines.length)]}"`); return; } p.npcOpen = n.npcId; sendTo(p, npcInfo(n, p)); }
-function npcInfo(n, p) { const quests = QUESTS.filter(q => q.giver === n.npcId).map(q => ({ id: q.id, st: questState(p, q), prog: questProgress(p, q) })); return { t: 'npc', id: n.npcId, name: n.name, shop: n.shop || null, craft: n.craft || null, enhance: !!n.enhance, rest: n.rest || 0, master: n.master || null, atone: !!n.atone, guard: !!n.guard, bank: !!n.bank, quests, bankItems: n.bank ? p.bank : undefined, bankGold: n.bank ? p.bankGold : undefined }; }
+function npcInfo(n, p) { const quests = QUESTS.filter(q => q.giver === n.npcId).map(q => ({ id: q.id, st: questState(p, q), prog: questProgress(p, q) })); return { t: 'npc', id: n.npcId, name: n.name, shop: n.shop || null, craft: n.craft || null, enhance: !!n.enhance, rest: n.rest || 0, master: n.master || null, atone: !!n.atone, guard: !!n.guard, bank: !!n.bank, quests, bankItems: n.bank ? p.bank : undefined, bankGold: n.bank ? p.bankGold : undefined, market: n.market ? market.view(p) : undefined }; }
 function refreshNpc(p) { if (p.npcOpen) { const n = npcById[p.npcOpen]; if (n && dist(p, n) <= 3.2) sendTo(p, npcInfo(n, p)); else p.npcOpen = null; } }
 function service(p, m) {
   const n = npcFor(p, m.npc); if (!n) return;
@@ -261,6 +262,9 @@ function service(p, m) {
     if (q.type === 'collect') takeItem(p, q.target, q.n);
     const r = q.reward; p.gold += r.gold || 0; if (r.items) for (const [id, cnt] of Object.entries(r.items)) addItem(p, { id, n: cnt, enh: 0 });
     p.quests[q.id].st = 'done'; if (q.daily) p.quests[q.id].day = dayKey(); sys(p, `의뢰 완료: ${q.title} · 금화 ${r.gold}${r.items ? ' · ' + Object.keys(r.items).map(k => ITEMS[k].name).join(', ') : ''}`); broadcastNear(p.x, p.y, { t: 'ev', k: 'fx', fx: 'craft', id: p.id }); if (r.exp) gainExp(p, r.exp);
+  } else if (m.t === 'mlist') { if (n.market) market.list(p, m.i | 0, m.price);
+  } else if (m.t === 'mbuy') { if (n.market) market.buy(p, m.id);
+  } else if (m.t === 'mcancel') { if (n.market) market.cancel(p, m.id);
   } else if (m.t === 'atone') {
     if (!n.atone || p.align >= 0) return; const cost = -p.align * 150; if (p.gold < cost) return sys(p, `헌금 ${cost} G가 필요합니다.`); p.gold -= cost; p.align = 0; bump(p); sys(p, '죄가 씻겼습니다. 성향이 0으로 돌아왔습니다.');
   }
@@ -397,6 +401,7 @@ function snapshot(c) {
 // ── connections
 const online = new Map();   // accountId -> player
 const guilds = createGuilds({ online, sys, sendTo, findPlayerByName, now, logEvent });
+const market = createMarket({ online, sys, addItem, invChanged, now, logEvent });
 export function onConnection(sock) {
   const c = { sock, player: null, known: new Map(), chatT: 0, msgs: 0, winT: now() };
   clients.add(c);
@@ -446,7 +451,7 @@ export function onConnection(sock) {
       case 'equip': equip(p, m.i | 0, m.id); break;
       case 'unequip': { const s = String(m.slot); const it = p.equip[s]; if (!it) return; if (p.inv.length >= INV_SIZE) return sys(p, '가방이 가득 찼습니다.'); delete p.equip[s]; p.inv.push({ id: it.id, n: 1, enh: it.enh || 0 }); applyStats(p); invChanged(p); break; }
       case 'drop': { const it = p.inv[m.i | 0]; if (!it || it.id !== m.id) return; p.inv.splice(m.i | 0, 1); spawnDrop(p.x, p.y, it, 0, null); sys(p, `${itemName(it)}을(를) 바닥에 내려놓았습니다.`); invChanged(p); break; }
-      case 'buy': case 'sell': case 'craft': case 'enhance': case 'rest': case 'job': case 'advance': case 'atone': case 'bankIn': case 'bankOut': case 'bankGold': case 'qaccept': case 'qdone': service(p, m); break;
+      case 'buy': case 'sell': case 'craft': case 'enhance': case 'rest': case 'job': case 'advance': case 'atone': case 'bankIn': case 'bankOut': case 'bankGold': case 'qaccept': case 'qdone': case 'mlist': case 'mbuy': case 'mcancel': service(p, m); break;
       case 'chat': {
         const text = String(m.msg || '').slice(0, 160).trim(); if (!text || now() - c.chatT < 500) return; c.chatT = now();
         if (text[0] === '/') {

@@ -56,7 +56,7 @@ export const DROPS = {
 // NPCs: where they stand, what they offer. Positions are tiles in front of their building doors.
 export const NPCS = [
   { id: 'smith',   name: '대장장이 로릭',   sprite: 'barbarian', x: 74.5, y: 77.5, shop: ['dagger', 'shortSword', 'mace', 'longSword', 'staff', 'battleAxe', 'woodShield', 'ironShield'], craft: ['boneBlade', 'boneShield', 'soulStaff', 'cursedAxe'], enhance: true },
-  { id: 'market',  name: '상인 베라',       sprite: 'rogue',     x: 99.5, y: 86.5, shop: ['leatherArmor', 'chainMail', 'plateArmor', 'ironHelm', 'leatherBoots', 'leatherGloves', 'silverRing', 'hpPotion', 'mpPotion', 'scroll'] },
+  { id: 'market',  name: '상인 베라',       sprite: 'rogue',     x: 99.5, y: 86.5, market: true, shop: ['leatherArmor', 'chainMail', 'plateArmor', 'ironHelm', 'leatherBoots', 'leatherGloves', 'silverRing', 'hpPotion', 'mpPotion', 'scroll'] },
   { id: 'inn',     name: '여관 주인 올가',  sprite: 'mage',      x: 102.5, y: 77.5, rest: 20, master: 'rogue' },
   { id: 'chapel',  name: '사제 안셀',       sprite: 'mage',      x: 102.5, y: 102.5, master: 'cleric', atone: true },
   { id: 'knights', name: '기사단장 가웨인', sprite: 'knight',    x: 76.5, y: 100.5, master: 'knight' },

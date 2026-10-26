@@ -109,7 +109,7 @@ export function createUI({ MF, send, log }) {
     } else if (k === 'npc') {
       const n = state.npc; if (!n) return; title.textContent = n.name; const tabs = [];
       if (n.quests && n.quests.length) tabs.push(['quest', '의뢰']); if (n.bank) tabs.push(['bank', '창고']);
-      if (n.shop) tabs.push(['buy', '구매'], ['sell', '판매']); if (n.craft) tabs.push(['craft', '제작']); if (n.enhance) tabs.push(['enh', '강화']); if (n.rest) tabs.push(['rest', '휴식']);
+      if (n.shop) tabs.push(['buy', '구매'], ['sell', '판매']); if (n.market) tabs.push(['market', '장터']); if (n.craft) tabs.push(['craft', '제작']); if (n.enhance) tabs.push(['enh', '강화']); if (n.rest) tabs.push(['rest', '휴식']);
       if (n.master) { tabs.push(['job', '전직']); if (ADV_OF[n.master]) tabs.push(['adv', '승급']); } if (n.atone) tabs.push(['atone', '속죄']);
       if (!state.npcTab || !tabs.some(t => t[0] === state.npcTab)) state.npcTab = tabs[0] ? tabs[0][0] : null;
       let h = statsLine() + (tabs.length > 1 ? `<div class="tabs">${tabs.map(([k2, l]) => `<button class="btn${state.npcTab === k2 ? ' on' : ''}" data-tab="${k2}">${l}</button>`).join('')}</div>` : '');
@@ -118,6 +118,11 @@ export function createUI({ MF, send, log }) {
       else if (T === 'bank') {
         const g = (ids, src, n2) => { let hh = ''; const len = Math.max(n2, Math.ceil((ids.length + 1) / 6) * 6); for (let i = 0; i < len; i++) { const it = ids[i]; hh += it ? `<div class="slot" data-bank="${src}" data-i="${i}" data-id="${it.id}"><img src="${itemIcon(MF, it.id)}" alt="" draggable="false">${it.n > 1 ? `<span class="n">${it.n}</span>` : ''}${it.enh ? `<span class="plus">+${it.enh}</span>` : ''}</div>` : '<div class="slot empty"></div>'; } return `<div class="grid">${hh}</div>`; };
         h += `<p class="say">"맡긴 물건은 안전합니다. 칸을 누르면 통째로 옮깁니다."</p><div class="qh">창고 <span class="ds">(${n.bankItems.length}/${BANK_SIZE})</span></div>${g(n.bankItems, 'bank', 12)}<div class="qh" style="margin-top:8px">가방</div>${g(state.inv, 'inv', 6)}<div class="bankgold"><span>창고 금화 <b>${n.bankGold}</b></span><span>소지 금화 <b>${state.gold}</b></span><input type="number" id="bankAmt" min="1" placeholder="금액" inputmode="numeric"><button class="btn" data-act="bdep">입금</button><button class="btn" data-act="bwd">출금</button><button class="btn" data-act="bdepall">전부 입금</button></div>`;
+      }
+      else if (T === 'market') {
+        const rows = (n.market || []).map(r => `<div class="row"><img class="ri" src="${itemIcon(MF, r.item.id)}" alt=""><div><div class="nm">${esc(itemName(r.item))}${r.item.n > 1 ? ` <span class="ds">×${r.item.n}</span>` : ''}</div><div class="ds">${itemDesc(r.item)} · ${esc(r.seller)}</div></div><div class="pr">${r.price} G${r.mine ? `<button class="btn" data-act="mcancel" data-id="${r.id}">취소</button>` : `<button class="btn" data-act="mbuy" data-id="${r.id}" ${state.gold < r.price ? 'disabled' : ''}>구매</button>`}</div></div>`).join('');
+        const opts = state.inv.map((it, i) => `<option value="${i}">${esc(itemName(it))}${it.n > 1 ? ' ×' + it.n : ''}</option>`).join('');
+        h += `<p class="say">"모험가들끼리 사고파는 장터예요. 팔리면 5%는 제 몫이에요. 묶음 물건은 묶음째 올라가요."</p><div class="bankgold"><select id="mItem" class="in">${opts || '<option value="-1">가방이 비었습니다</option>'}</select><input type="number" id="mPrice" min="10" placeholder="가격" inputmode="numeric" style="width:90px"><button class="btn" data-act="mlist">올리기</button></div><div class="qh" style="margin-top:10px">장터 물건 <span class="ds">(${(n.market || []).length})</span></div>${rows || '<p class="say">아직 올라온 물건이 없습니다.</p>'}`;
       }
       else if (n.guard && !T) h += `<p class="say">"성 안에서는 칼을 뽑지 마시오. 성문 밖은 그대의 책임이오. 해골들은 남쪽 강가와 북서쪽 황야로 갈수록 강해지오."</p>`;
       else if (T === 'buy') h += n.shop.map(id => { const b = ITEMS[id]; return `<div class="row"><img class="ri" src="${itemIcon(MF, id)}" alt=""><div><div class="nm">${b.name}</div><div class="ds">${itemDesc({ id })}</div></div><div class="pr">${b.price} G<button class="btn" data-act="buy" data-id="${id}" ${state.gold < b.price ? 'disabled' : ''}>구매</button>${b.stack ? `<button class="btn" data-act="buy10" data-id="${id}" ${state.gold < b.price * 10 ? 'disabled' : ''}>×10</button>` : ''}</div></div>`; }).join('');
@@ -181,6 +186,8 @@ export function createUI({ MF, send, log }) {
     else if (a === 'enh') { const [src, v] = state.selEnh.split(':'); if (src === 'eq') send({ t: 'enhance', npc: n.id, src, slot: v }); else { const x = state.inv[+v]; if (x) send({ t: 'enhance', npc: n.id, src, i: +v, id: x.id }); } }
     else if (a === 'rest' || a === 'job' || a === 'advance' || a === 'atone') send({ t: a, npc: n.id });
     else if (a === 'qaccept' || a === 'qdone') send({ t: a, npc: n.id, q: d.q });
+    else if (a === 'mlist') { const sel = document.getElementById('mItem'), pr = document.getElementById('mPrice'); const i = +(sel && sel.value); if (i >= 0) send({ t: 'mlist', npc: n.id, i, price: Math.floor(+(pr && pr.value) || 0) }); }
+    else if (a === 'mbuy' || a === 'mcancel') send({ t: a, npc: n.id, id: +d.id });
     else if (a === 'bdep' || a === 'bwd' || a === 'bdepall') { const inp = document.getElementById('bankAmt'); const v = a === 'bdepall' ? state.gold : Math.floor(+(inp && inp.value) || 0); if (v > 0) send({ t: 'bankGold', npc: n.id, v: a === 'bwd' ? -v : v }); }
   }
   return {

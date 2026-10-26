@@ -152,6 +152,15 @@ A.send({ t: 'use', i: A.inv.inv.findIndex(x => x.id === 'scroll'), id: 'scroll' 
 check(A.npc && A.npc.quests && A.npc.quests.some(q => q.id === 'd_rogue' && q.st === 'avail'), 'daily bounty offered by the south guard');
 A.send({ t: 'qaccept', npc: 'guard_s1', q: 'd_rogue' }); await sleep(400); check(A.npc.quests.find(q => q.id === 'd_rogue')?.st === 'active', 'daily bounty accepted');
 B = bot(rb.token); await B.ready; await sleep(500);
+// market: A lists a potion, B buys it, A receives 95%
+const waitNpc = async (bot, id) => { bot.send({ t: 'talk', npc: id }); for (let i = 0; i < 15; i++) { await sleep(1000); if (bot.npc && bot.npc.id === id) return true; } return false; };
+A.send({ t: 'chat', msg: '/아이템 hpPotion 1' }); await sleep(600);
+check(await waitNpc(A, 'market') && Array.isArray(A.npc.market), 'merchant offers the player market');
+const mi = A.inv.inv.findIndex(x => x.id === 'hpPotion'); A.send({ t: 'mlist', npc: 'market', i: mi, price: 100 }); await sleep(500);
+check(A.npc.market.some(r => r.mine && r.item.id === 'hpPotion' && r.price === 100), 'item listed on the market');
+await waitNpc(B, 'market'); const lid = B.npc.market.find(r => r.item.id === 'hpPotion' && !r.mine)?.id; const gA2 = A.inv.gold, gB2 = B.inv.gold;
+B.send({ t: 'mbuy', npc: 'market', id: lid }); await sleep(500);
+check(B.inv.inv.some(x => x.id === 'hpPotion') && B.inv.gold === gB2 - 100 && A.inv.gold === gA2 + 95, `market purchase settled (seller +95, buyer -100)`);
 const monsBefore = (await (await fetch(`http://127.0.0.1:${PORT}/health`)).json()).monsters;
 A.send({ t: 'chat', msg: '/습격' }); await sleep(600); const monsAfter = (await (await fetch(`http://127.0.0.1:${PORT}/health`)).json()).monsters;
 check(B.chat.some(t => t.includes('해골 무리가')) && monsAfter >= monsBefore + 8, `gate raid spawns a warband and notifies everyone (${monsBefore} -> ${monsAfter})`);
