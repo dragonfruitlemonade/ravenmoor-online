@@ -151,7 +151,7 @@ function applySettings() { $('minimap').classList.toggle('big', !!SETTINGS.mmBig
 function openSettings() { const w = $('settings'); w.hidden = !w.hidden; if (w.hidden) return; w.innerHTML = `<div class="wh"><span class="wt">설정</span><button class="wx" id="setx">✕</button></div><div class="wb"><label><input type="checkbox" data-s="sound" ${isMuted() ? '' : 'checked'}> 효과음·환경음</label><label><input type="checkbox" data-s="names" ${SETTINGS.names ? 'checked' : ''}> 이름표 표시</label><label><input type="checkbox" data-s="hideOthersNames" ${SETTINGS.hideOthersNames ? 'checked' : ''}> 다른 모험가 이름 숨기기</label><label><input type="checkbox" data-s="dmg" ${SETTINGS.dmg ? 'checked' : ''}> 피해 숫자 표시</label><label><input type="checkbox" data-s="mmBig" ${SETTINGS.mmBig ? 'checked' : ''}> 큰 미니맵</label><div class="row"><button class="btn" id="zoomReset">확대 초기화</button><button class="btn" id="setLogout">로그아웃</button></div><p class="ds">단축키: A 공격 · H 치유 · S/D 기술 · 1·2·3 물약·귀환 · Z 줍기 · I 가방 · E 장비 · C 캐릭터 · Q 의뢰 · L 순위 · M 소리 · O 설정 · R 귓속말 답장 · Esc 멈춤</p></div>`;
   $('setx').onclick = () => { w.hidden = true; }; $('zoomReset').onclick = () => { zoom = 1; }; $('setLogout').onclick = () => $('logout').click();
   for (const c of w.querySelectorAll('input[data-s]')) c.onchange = () => { if (c.dataset.s === 'sound') { const mu = toggleMute(); $('muteBtn').querySelector('small').textContent = mu ? '음소거' : '소리'; return; } SETTINGS[c.dataset.s] = c.checked; saveSettings(); }; }
-const floats = [], bolts = [], clicks = [], rings = [], tele = [], chainsFx = []; let raidState = null, hoverId = 0, dayPhase = 0, questMarks = {}, party = null, isAdminUser = false, lastWhisper = null;
+const rainDrops = []; const floats = [], bolts = [], clicks = [], rings = [], tele = [], chainsFx = []; let raidState = null, weather = 0, weatherAmt = 0, hoverId = 0, dayPhase = 0, questMarks = {}, party = null, isAdminUser = false, lastWhisper = null;
 function renderParty() {
   const el = $('party'); if (!party || !party.id) { el.hidden = true; return; } el.hidden = false;
   el.innerHTML = `<div class="ph">파티 <span class="ds">${party.members.length}/5</span> <button class="link" id="pleave">나가기</button></div>` + party.members.map(mm => `<div class="pm${mm.id === myId ? ' me' : ''}${mm.id === party.leader ? ' lead' : ''}"><span class="nm">${mm.id === party.leader ? '★ ' : ''}${esc(mm.name)} <small>Lv${mm.level}</small></span><div class="bar hp"><i style="width:${100 * mm.hp / mm.maxHp}%"></i></div></div>`).join('');
@@ -163,6 +163,10 @@ function showInvite(m) {
   d.querySelector('[data-a=ok]').onclick = () => { send({ t: m.kind === 'party' ? 'paccept' : m.kind === 'guild' ? 'gaccept' : 'taccept' }); d.remove(); }; d.querySelector('[data-a=no]').onclick = () => d.remove();
   box.appendChild(d); setTimeout(() => d.remove(), m.kind === 'party' ? 60000 : 30000); sfx.quest();
 }
+// one-time tips for newcomers (remembered per browser)
+const TIPS = { move: '바닥을 클릭하면 이동, 몬스터를 클릭하거나 A 키를 누르면 공격합니다. 상인·스승은 클릭해서 말을 겁니다.', outside: '성 밖입니다. 6레벨부터는 다른 모험가가 공격해 올 수 있습니다. 귀환 주문서(3)로 언제든 마을로 돌아갑니다.', lowhp: '체력이 낮습니다! 1번 키로 물약을 마시거나 H로 치유하세요. 싸움을 멈추면 서서히 회복되고, 마을 안에서는 두 배로 빠릅니다.', drop: '바닥의 전리품은 클릭하거나 Z 키로 줍습니다. 10초 동안은 처치한 사람에게 우선권이 있습니다.', bag: '가방(I)에서 물건을 두 번 누르면 사용하거나 장착합니다. 장비(E)와 캐릭터(C) 창도 확인해 보세요.', party: '다른 모험가를 우클릭하면 파티 초대·거래·귓속말을 할 수 있습니다. 파티는 경험치를 나누고 서로 공격할 수 없습니다.', boss: '보스는 혼자서는 버겁습니다. 바닥에 붉은 원이 보이면 범위 공격 예고이니 피하세요. 파티를 모아 도전하세요.' };
+let tipsSeen = {}; try { tipsSeen = JSON.parse(localStorage.getItem('rm-tips') || '{}'); } catch {}
+function tip(key) { if (tipsSeen[key] || !TIPS[key]) return; tipsSeen[key] = 1; try { localStorage.setItem('rm-tips', JSON.stringify(tipsSeen)); } catch {} const n = $('tip'); n.innerHTML = `<b>도움말</b> ${esc(TIPS[key])}`; n.hidden = false; clearTimeout(tip.t); tip.t = setTimeout(() => n.hidden = true, 12000); addLog('💡 ' + TIPS[key], 'sys'); }
 function showNotice(text) { const n = $('notice'); n.textContent = text; n.hidden = false; clearTimeout(showNotice.t); showNotice.t = setTimeout(() => n.hidden = true, 8000); }
 let ctxMenu = null;
 function playerMenu(e, px, py) {
@@ -202,10 +206,10 @@ function onMsg(m) {
   if (m.t === 'leaderboard') { ui.setBoard(m.rows); return; }
   if (m.t === 'invite') { showInvite(m); return; }
   if (m.t === 'pong') { latency = Math.round(performance.now() - m.c); return; }
-  if (m.t === 'welcome') { reconnect.tries = 0; $('reconn').hidden = true; if (myId) { addLog('다시 연결되었습니다.', 'sys'); } myId = m.id; isAdminUser = !!m.admin; if (isAdminUser) $('adminLink').hidden = false; $('join').hidden = true; $('hud').hidden = false; $('pname').textContent = m.name; addLog(`${m.name}님, 레이븐무어에 오신 것을 환영합니다. 성문은 동서남북 네 곳에 있습니다. 상인·스승·마을 사람은 이름을 눌러 말을 걸 수 있습니다.`, 'sys'); return; }
+  if (m.t === 'welcome') { reconnect.tries = 0; $('reconn').hidden = true; if (myId) { addLog('다시 연결되었습니다.', 'sys'); } myId = m.id; isAdminUser = !!m.admin; if (isAdminUser) $('adminLink').hidden = false; $('join').hidden = true; $('hud').hidden = false; $('pname').textContent = m.name; setTimeout(() => tip('move'), 1500); setTimeout(() => tip('bag'), 40000); addLog(`${m.name}님, 레이븐무어에 오신 것을 환영합니다. 성문은 동서남북 네 곳에 있습니다. 상인·스승·마을 사람은 이름을 눌러 말을 걸 수 있습니다.`, 'sys'); return; }
   if (m.t === 'snap') {
-    for (const [id, kind, name, sprite, level, flag, maxHp, extra, scale, boss, guild, title] of m.m) { const e = ents.get(id) || { id, atkT: -1e9, hitT: -1e9, deadT: 0, rx: null }; Object.assign(e, { kind, name, sprite, level, flag, maxHp, extra, scale: scale || 1, boss: boss === 1, elite: boss === 2, guild: guild || '', title: title || '' }); ents.set(id, e); }
-    dayPhase = m.day || 0; questMarks = m.qm || {}; raidState = m.raid || null;
+    for (const [id, kind, name, sprite, level, flag, maxHp, extra, scale, boss, guild, title] of m.m) { if (kind === 3) tip('drop'); const e = ents.get(id) || { id, atkT: -1e9, hitT: -1e9, deadT: 0, rx: null }; Object.assign(e, { kind, name, sprite, level, flag, maxHp, extra, scale: scale || 1, boss: boss === 1, elite: boss === 2, guild: guild || '', title: title || '' }); ents.set(id, e); }
+    dayPhase = m.day || 0; weather = m.w || 0; questMarks = m.qm || {}; raidState = m.raid || null;
     for (const [id, x, y, dir, st, hp, sf] of m.e) { const e = ents.get(id); if (!e) continue; if (e.rx === null || Math.hypot(e.rx - x, e.ry - y) > 4) { e.rx = x; e.ry = y; } if (st === 4 && e.st !== 4) e.deadT = t; Object.assign(e, { x, y, dir, st, hp, sf }); }
     for (const id of m.g) ents.delete(id);
     me = ents.get(myId); meStats = m.me; ui.setMe(m.me); online = m.e.filter(e => ents.get(e[0])?.kind === 1).length; return;
@@ -351,11 +355,12 @@ function hud() {
   $('pcls').classList.toggle('bless', !!meStats[20]);
   $('xpb').style.width = (100 * xp / need) + '%'; $('xpt').textContent = `${(100 * xp / need).toFixed(1)}%`; $('plv').textContent = lv; $('gold').textContent = gold;
   $('align').textContent = align < 0 ? `카오틱 ${align}` : `성향 ${align}`; $('align').style.color = align < 0 ? '#ff6a5a' : '';
-  if (me) { const safe = isSafe(me.x, me.y); const z = safe ? '성내 · 안전 지대' : '성 밖 · PK 허용'; if (z !== lastZone) { lastZone = z; $('zonet').textContent = z; $('zone').classList.toggle('danger', !safe); } }
+  if (me) { const safe = isSafe(me.x, me.y); const z = safe ? '성내 · 안전 지대' : '성 밖 · PK 허용'; if (z !== lastZone) { lastZone = z; $('zonet').textContent = z; $('zone').classList.toggle('danger', !safe); if (!safe) tip('outside'); } }
+  if (hp < mhp * .4 && hp > 0) tip('lowhp'); if (meStats[21]) tip('party');
   $('online').textContent = `주변 ${online}명 · ${latency}ms`; $('pcls').textContent = classInfo(meStats[11]).name; const sk = classInfo(meStats[11]).skill; $('skName').textContent = sk ? sk.name : '기술'; $('cdH').style.height = (100 * Math.min(1, meStats[12] / 5000)) + '%'; $('cdS').style.height = (sk ? 100 * Math.min(1, meStats[13] / meStats[14]) : 100) + '%';
   const sk2 = classInfo(meStats[11]).skill2; $('sk2Name').textContent = sk2 ? sk2.name : '기술2'; $('cdD').style.height = (sk2 ? 100 * Math.min(1, meStats[18] / meStats[19]) : 100) + '%';
-  const bb = $('bossbar'); const tgb = ents.get(targetId); if (tgb && tgb.boss && tgb.st !== 4) { bb.hidden = false; $('bossname').textContent = `${tgb.name} · Lv ${tgb.level}`; $('bosshp').style.width = (100 * tgb.hp / tgb.maxHp) + '%'; $('bosshpt').textContent = `${tgb.hp} / ${tgb.maxHp}`; } else bb.hidden = true;
-  const hr = Math.floor((dayPhase * 24 + 6) % 24); if (me) setAmbience({ fountain: Math.max(0, 1 - Math.hypot(me.x - CX, me.y - CY - .5) / 10), night: Math.max(0, Math.sin((dayPhase - .25) * Math.PI * 2)), hour: hr, inTown: isSafe(me.x, me.y) }); $('clock').textContent = `${String(hr).padStart(2, '0')}시 ${nightLabel(dayPhase)}`;
+  const bb = $('bossbar'); const tgb = ents.get(targetId); if (tgb && tgb.boss && tgb.st !== 4) { bb.hidden = false; tip('boss'); $('bossname').textContent = `${tgb.name} · Lv ${tgb.level}`; $('bosshp').style.width = (100 * tgb.hp / tgb.maxHp) + '%'; $('bosshpt').textContent = `${tgb.hp} / ${tgb.maxHp}`; } else bb.hidden = true;
+  const hr = Math.floor((dayPhase * 24 + 6) % 24); if (me) setAmbience({ rain: weather === 1 ? 1 : 0, fountain: Math.max(0, 1 - Math.hypot(me.x - CX, me.y - CY - .5) / 10), night: Math.max(0, Math.sin((dayPhase - .25) * Math.PI * 2)), hour: hr, inTown: isSafe(me.x, me.y) }); $('clock').textContent = `${String(hr).padStart(2, '0')}시 ${nightLabel(dayPhase)}`;
   const cnt = id => ui.state.inv.filter(x => x.id === id).reduce((a, x) => a + x.n, 0); $('n1').textContent = cnt('hpPotion'); $('n2').textContent = cnt('mpPotion'); $('n3').textContent = cnt('scroll');
   const tg = ents.get(targetId); if (tg && tg.st !== 4) { $('target').hidden = false; $('tname').textContent = tg.name; $('tlv').textContent = `Lv ${tg.level}`; $('thpb').style.width = (100 * tg.hp / tg.maxHp) + '%'; } else $('target').hidden = true;
   $('dead').hidden = !(me && me.st === 4);
@@ -412,6 +417,14 @@ function frame(t) {
       if (e.say && t - e.sayT < 5000) { ctx.font = "500 12px 'Noto Sans KR'"; const txt = e.say.length > 28 ? e.say.slice(0, 27) + '…' : e.say; const w = ctx.measureText(txt).width + 16; ctx.fillStyle = 'rgba(250,246,236,.94)'; ctx.fillRect(sx - w / 2, y - 34, w, 22); ctx.beginPath(); ctx.moveTo(sx - 5, y - 12); ctx.lineTo(sx + 5, y - 12); ctx.lineTo(sx, y - 6); ctx.fill(); ctx.fillStyle = '#1a1612'; ctx.fillText(txt, sx, y - 19); }
     }
     for (let i = floats.length - 1; i >= 0; i--) { const f = floats[i]; const life = f.life || 900; const p = (t - f.t0) / life; if (p >= 1) { floats.splice(i, 1); continue; } const [sx, sy] = toS(f.x, f.y); ctx.font = `700 ${f.big ? 17 : 14}px 'Noto Sans KR'`; ctx.globalAlpha = 1 - p * p; ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,.85)'; const y = sy - f.h - 12 - p * 34; ctx.strokeText(f.txt, sx, y); ctx.fillStyle = f.col; ctx.fillText(f.txt, sx, y); ctx.globalAlpha = 1; }
+    // weather (server-synchronised): rain streaks + cool tint, or fog with a clear circle around the player
+    weatherAmt += ((weather ? 1 : 0) - weatherAmt) * Math.min(1, dt * .5);
+    if (weatherAmt > .02) { ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+      if (weather === 1 || (weather === 0 && rainDrops.length)) { ctx.fillStyle = `rgba(40,50,70,${.22 * weatherAmt})`; ctx.globalCompositeOperation = 'multiply'; ctx.fillRect(0, 0, VW, VH); ctx.globalCompositeOperation = 'source-over';
+        while (rainDrops.length < 160 * weatherAmt) rainDrops.push({ x: Math.random() * (VW + 200) - 100, y: Math.random() * VH, v: 600 + Math.random() * 300, l: 10 + Math.random() * 10 });
+        if (weather !== 1 && rainDrops.length) rainDrops.length = Math.max(0, rainDrops.length - 3);
+        ctx.strokeStyle = `rgba(200,215,240,${.35 * weatherAmt})`; ctx.lineWidth = 1; ctx.beginPath(); for (const d of rainDrops) { d.y += d.v * dt; d.x += d.v * .25 * dt; if (d.y > VH) { d.y = -20; d.x = Math.random() * (VW + 200) - 100; } ctx.moveTo(d.x, d.y); ctx.lineTo(d.x - d.l * .25, d.y - d.l); } ctx.stroke(); }
+      if (weather === 2) { const [gx, gy] = me && me.rx !== null ? toS(me.rx, me.ry) : [cam.x, cam.y]; const x = (gx - cam.x) * zoom + VW / 2, y = (gy - 20 - cam.y) * zoom + VH / 2; const gr = ctx.createRadialGradient(x, y, 90 * zoom, x, y, 520 * zoom); gr.addColorStop(0, `rgba(205,210,220,${.05 * weatherAmt})`); gr.addColorStop(1, `rgba(205,210,220,${.82 * weatherAmt})`); ctx.fillStyle = gr; ctx.fillRect(0, 0, VW, VH); } }
     // day/night tint (server-synchronised)
     const night = Math.max(0, Math.sin((dayPhase - .25) * Math.PI * 2)); const nightAmt = night * night * .78;
     if (nightAmt > .02) { ctx.setTransform(DPR, 0, 0, DPR, 0, 0); ctx.fillStyle = `rgba(18,22,52,${nightAmt})`; ctx.globalCompositeOperation = 'multiply'; ctx.fillRect(0, 0, VW, VH); ctx.globalCompositeOperation = 'source-over';

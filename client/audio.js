@@ -39,12 +39,12 @@ let state = { fountain: 0, night: 0 };
 export function setAmbience(s) { Object.assign(state, s); }
 function ambience() {
   const bed = (fc, g0) => { const s = AC.createBufferSource(); s.buffer = noise; s.loop = true; const f = AC.createBiquadFilter(); f.type = fc > 1000 ? 'bandpass' : 'lowpass'; f.frequency.value = fc; f.Q.value = .6; const g = AC.createGain(); g.gain.value = g0; s.connect(f); f.connect(g); g.connect(master); s.start(); return g; };
-  const wind = bed(260, .05), fount = bed(2400, 0);
+  const wind = bed(260, .05), fount = bed(2400, 0), rain = bed(1800, 0);
   const lfo = AC.createOscillator(); lfo.frequency.value = .11; const lg = AC.createGain(); lg.gain.value = .03; lfo.connect(lg); lg.connect(wind.gain); lfo.start();
   let lastHour = -1;
   setInterval(() => {
     if (!AC || muted) return;
-    fount.gain.value = state.fountain * .1;
+    fount.gain.value = state.fountain * .1; rain.gain.value += ((state.rain || 0) * .14 - rain.gain.value) * .1;
     if (state.night > .4 && Math.random() < .5) { const n = 2 + Math.floor(Math.random() * 3); for (let i = 0; i < n; i++) setTimeout(() => tone(4100 + Math.random() * 300, .035, 'sine', .015 * state.night), i * 60); }
     const hr = state.hour | 0; if (hr !== lastHour) { lastHour = hr; if (hr % 6 === 0 && state.inTown) { for (let i = 0; i < 3; i++) setTimeout(() => sfx.bell(), i * 900); } }
   }, 250);

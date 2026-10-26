@@ -19,6 +19,10 @@ const KIND = { player: 1, monster: 2, drop: 3, npc: 4 };
 const QBY = Object.fromEntries(QUESTS.map(q => [q.id, q]));
 export const worldStart = now();   // day/night: 10 real minutes per game day
 const dayPhase = () => ((now() - worldStart) / 600000) % 1;
+// weather: 0 clear, 1 rain, 2 fog — changes every 8–18 minutes, clear most of the time
+let weather = 0, weatherUntil = now() + 6 * 60000;
+export function setWeather(w) { weather = w; weatherUntil = now() + 8 * 60000; }
+setInterval(() => { if (now() < weatherUntil) return; const r = R(); weather = weather ? 0 : r < .55 ? 1 : 2; weatherUntil = now() + (weather ? 5 + R() * 6 : 8 + R() * 10) * 60000; if (weather) broadcastAll({ t: 'chat', sys: true, msg: weather === 1 ? '🌧 비가 내리기 시작합니다.' : '🌫 안개가 짙어집니다.' }); }, 10000).unref();
 
 const findPlayerByName = name => { const n = String(name || '').toLowerCase(); for (const e of ents.values()) if (e.kind === 'player' && e.name.toLowerCase() === n) return e; return null; };
 export const STARTER = { gold: 300, inventory: [{ id: 'hpPotion', n: 5 }, { id: 'scroll', n: 2 }], equipment: { weapon: { id: 'dagger', enh: 0 } } };
@@ -408,7 +412,7 @@ function snapshot(c) {
   }
   const gone = []; for (const id of c.known.keys()) if (!seen.has(id)) { gone.push(id); c.known.delete(id); c.last.delete(id); }
   const cls = classInfo(p.cls);
-  c.sock.send(JSON.stringify({ t: 'snap', s: now(), e: list, m: metas, g: gone, day: +dayPhase().toFixed(4), qm: questMarks(p), raid: raid ? [raid.gate.dir, raid.left, Math.max(0, Math.round((raid.until - now()) / 1000))] : 0,
+  c.sock.send(JSON.stringify({ t: 'snap', s: now(), e: list, m: metas, g: gone, day: +dayPhase().toFixed(4), w: weather, qm: questMarks(p), raid: raid ? [raid.gate.dir, raid.left, Math.max(0, Math.round((raid.until - now()) / 1000))] : 0,
     me: [Math.ceil(p.hp), p.maxHp, Math.floor(p.mp), p.maxMp, p.level, p.exp, expNeed(p.level), p.gold, p.atk, p.def, p.align, p.cls, Math.max(0, p.healT - now()), Math.max(0, p.skillT - now()), cls.skill ? cls.skill.cd : 0, p.atkSpeed, p.range, p.kills, Math.max(0, (p.skill2T || 0) - now()), cls.skill2 ? cls.skill2.cd : 0, p.fx.bless > now() ? 1 : 0, p.partyId || 0] }));
 }
 
@@ -471,7 +475,7 @@ export function onConnection(sock) {
       case 'chat': {
         const text = String(m.msg || '').slice(0, 160).trim(); if (!text || now() - c.chatT < 500) return; c.chatT = now();
         if (text[0] === '/') {
-          if (adminCommand(p, text, { sys, broadcastAll, findPlayerByName, ents, addItem, invChanged, applyStats, bump, MONSTERS, spawnMonster, startRaid })) return;
+          if (adminCommand(p, text, { sys, broadcastAll, findPlayerByName, ents, addItem, invChanged, applyStats, bump, MONSTERS, spawnMonster, startRaid, setWeather })) return;
           const [cmd, ...args] = text.split(/\s+/); const rest = args.join(' ');
           if (cmd === '/귓' || cmd === '/w') { if (args.length < 2) return sys(p, '사용법: /귓 이름 내용'); social.whisper(p, args[0], args.slice(1).join(' ')); }
           else if (cmd === '/파티' || cmd === '/p') { if (args.length < 1) return sys(p, '사용법: /파티 초대 이름 · /파티 수락 · /파티 나가기 · /파티 추방 이름 · /파티 내용(파티 채팅)'); const sub = args[0]; if (sub === '초대') social.invite(p, args[1]); else if (sub === '수락') social.accept(p); else if (sub === '나가기' || sub === '탈퇴') social.leaveParty(p); else if (sub === '추방') social.kick(p, args[1] || ''); else social.partyChat(p, rest); }
