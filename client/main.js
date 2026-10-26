@@ -7,7 +7,9 @@ import { initAudio, toggleMute, isMuted, sfx, sfxAt, setAmbience } from '/client
 const $ = id => document.getElementById(id);
 const canvas = $('game'), ctx = canvas.getContext('2d');
 let DPR = 1, VW = 1, VH = 1, zoom = 1;
-function resize() { DPR = Math.min(devicePixelRatio || 1, 2); VW = innerWidth; VH = innerHeight; canvas.width = Math.round(VW * DPR); canvas.height = Math.round(VH * DPR); chunks.clear(); }
+// phones start zoomed out so monsters are visible before they arrive (pinch still zooms 0.6–1.8)
+let zoomSet = false; const defaultZoom = () => innerWidth <= 640 ? .7 : 1;
+function resize() { DPR = Math.min(devicePixelRatio || 1, 2); VW = innerWidth; VH = innerHeight; canvas.width = Math.round(VW * DPR); canvas.height = Math.round(VH * DPR); chunks.clear(); if (!zoomSet) zoom = defaultZoom(); }
 addEventListener('resize', resize);
 
 const W = buildWorld();
@@ -149,9 +151,9 @@ const SETTINGS = { names: true, dmg: true, mmBig: false, hideOthersNames: false 
 function saveSettings() { try { localStorage.setItem('rm-settings', JSON.stringify(SETTINGS)); } catch {} applySettings(); }
 function applySettings() { $('minimap').classList.toggle('big', !!SETTINGS.mmBig); }
 function openSettings() { const w = $('settings'); w.hidden = !w.hidden; if (w.hidden) return; w.innerHTML = `<div class="wh"><span class="wt">설정</span><button class="wx" id="setx">✕</button></div><div class="wb"><label><input type="checkbox" data-s="sound" ${isMuted() ? '' : 'checked'}> 효과음·환경음</label><label><input type="checkbox" data-s="names" ${SETTINGS.names ? 'checked' : ''}> 이름표 표시</label><label><input type="checkbox" data-s="hideOthersNames" ${SETTINGS.hideOthersNames ? 'checked' : ''}> 다른 모험가 이름 숨기기</label><label><input type="checkbox" data-s="dmg" ${SETTINGS.dmg ? 'checked' : ''}> 피해 숫자 표시</label><label><input type="checkbox" data-s="mmBig" ${SETTINGS.mmBig ? 'checked' : ''}> 큰 미니맵</label><div class="row"><button class="btn" id="zoomReset">확대 초기화</button><button class="btn" id="setLogout">로그아웃</button></div><p class="ds">단축키: A 공격 · H 치유 · S/D 기술 · 1·2·3 물약·귀환 · Z 줍기 · I 가방 · E 장비 · C 캐릭터 · Q 의뢰 · L 순위 · M 소리 · O 설정 · R 귓속말 답장 · Esc 멈춤</p></div>`;
-  $('setx').onclick = () => { w.hidden = true; }; $('zoomReset').onclick = () => { zoom = 1; }; $('setLogout').onclick = () => $('logout').click();
+  $('setx').onclick = () => { w.hidden = true; }; $('zoomReset').onclick = () => { zoom = defaultZoom(); zoomSet = false; }; $('setLogout').onclick = () => $('logout').click();
   for (const c of w.querySelectorAll('input[data-s]')) c.onchange = () => { if (c.dataset.s === 'sound') { const mu = toggleMute(); $('muteBtn').querySelector('small').textContent = mu ? '음소거' : '소리'; return; } SETTINGS[c.dataset.s] = c.checked; saveSettings(); }; }
-const rainDrops = []; const floats = [], bolts = [], clicks = [], rings = [], tele = [], chainsFx = []; let raidState = null, weather = 0, weatherAmt = 0, hoverId = 0, dayPhase = 0, questMarks = {}, party = null, isAdminUser = false, lastWhisper = null;
+const rainDrops = []; const floats = [], bolts = [], clicks = [], rings = [], tele = [], chainsFx = []; let hurtT = -1e9, hurtAmt = 0, deadAt = 0, entering = false; let raidState = null, weather = 0, weatherAmt = 0, hoverId = 0, dayPhase = 0, questMarks = {}, party = null, isAdminUser = false, lastWhisper = null;
 function renderParty() {
   const el = $('party'); if (!party || !party.id) { el.hidden = true; return; } el.hidden = false;
   el.innerHTML = `<div class="ph">파티 <span class="ds">${party.members.length}/5</span> <button class="link" id="pleave">나가기</button></div>` + party.members.map(mm => `<div class="pm${mm.id === myId ? ' me' : ''}${mm.id === party.leader ? ' lead' : ''}"><span class="nm">${mm.id === party.leader ? '★ ' : ''}${esc(mm.name)} <small>Lv${mm.level}</small></span><div class="bar hp"><i style="width:${100 * mm.hp / mm.maxHp}%"></i></div></div>`).join('');
@@ -206,7 +208,7 @@ function onMsg(m) {
   if (m.t === 'leaderboard') { ui.setBoard(m.rows, m.guilds || []); return; }
   if (m.t === 'invite') { showInvite(m); return; }
   if (m.t === 'pong') { latency = Math.round(performance.now() - m.c); return; }
-  if (m.t === 'welcome') { reconnect.tries = 0; $('reconn').hidden = true; if (myId) { addLog('다시 연결되었습니다.', 'sys'); } myId = m.id; isAdminUser = !!m.admin; if (isAdminUser) $('adminLink').hidden = false; $('join').hidden = true; $('hud').hidden = false; $('pname').textContent = m.name; setTimeout(() => tip('move'), 1500); setTimeout(() => tip('bag'), 40000); addLog(`${m.name}님, 레이븐무어에 오신 것을 환영합니다. 성문은 동서남북 네 곳에 있습니다. 상인·스승·마을 사람은 이름을 눌러 말을 걸 수 있습니다.`, 'sys'); return; }
+  if (m.t === 'welcome') { reconnect.tries = 0; $('reconn').hidden = true; if (myId) { addLog('다시 연결되었습니다.', 'sys'); } myId = m.id; isAdminUser = !!m.admin; if (isAdminUser) $('adminLink').hidden = false; if (!$('join').hidden) { entering = true; $('jerr').textContent = '세계를 불러오는 중…'; } $('pname').textContent = m.name; setTimeout(() => tip('move'), 1500); setTimeout(() => tip('bag'), 40000); addLog(`${m.name}님, 레이븐무어에 오신 것을 환영합니다. 성문은 동서남북 네 곳에 있습니다. 상인·스승·마을 사람은 이름을 눌러 말을 걸 수 있습니다.`, 'sys'); return; }
   if (m.t === 'snap') {
     for (const [id, kind, name, sprite, level, flag, maxHp, extra, scale, boss, guild, title] of m.m) { if (kind === 3) tip('drop'); const e = ents.get(id) || { id, atkT: -1e9, hitT: -1e9, deadT: 0, rx: null }; Object.assign(e, { kind, name, sprite, level, flag, maxHp, extra, scale: scale || 1, boss: boss === 1, elite: boss === 2, guild: guild || '', title: title || '' }); ents.set(id, e); }
     dayPhase = m.day || 0; weather = m.w || 0; questMarks = m.qm || {}; raidState = m.raid || null;
@@ -217,7 +219,13 @@ function onMsg(m) {
   if (m.t === 'ev') {
     const dist = e => (e && me && me.rx !== null) ? Math.hypot(e.rx - me.rx, e.ry - me.ry) : 0;
     if (m.k === 'atk') { const a = ents.get(m.a), b = ents.get(m.b); if (a) { a.atkT = t; sfxAt(m.r ? 'bolt' : 'swing', dist(a)); } if (m.r && a && b) bolts.push({ a, b, t0: t, dur: 120 + Math.hypot(a.x - b.x, a.y - b.y) * 60 }); }
-    else if (m.k === 'dmg') { const b = ents.get(m.b); if (b) { b.hitT = t; if (m.b === myId) sfx.hurt(); else sfxAt(m.c ? 'crit' : 'hit', dist(b)); if (SETTINGS.dmg || m.b === myId) floats.push({ x: b.rx, y: b.ry, h: headY(b), txt: String(m.v), col: m.b === myId ? '#ff7b6b' : m.c ? '#ffd86b' : '#ffffff', big: !!m.c, t0: t }); } }
+    else if (m.k === 'dmg') { const b = ents.get(m.b); if (b) { b.hitT = t; const mine = m.b === myId, byMe = m.a === myId;
+      if (mine) { sfx.hurt(); hurtT = t; hurtAmt = Math.min(1, .35 + m.v / Math.max(1, meStats ? meStats[1] : 100) * 3); $('status').classList.remove('hurt'); void $('status').offsetWidth; $('status').classList.add('hurt');
+        // show who is hitting us when we have no target yet (monsters and PKers that strike first)
+        const a = ents.get(m.a); if (a && !targetId && a.kind !== 4 && a.st !== 4) targetId = a.id; }
+      else sfxAt(m.c ? 'crit' : 'hit', dist(b));
+      if (SETTINGS.dmg || mine) floats.push({ x: b.rx, y: b.ry, h: headY(b), dx: (Math.random() - .5) * 26, txt: m.c ? m.v + '!' : String(m.v), col: mine ? '#ff7b6b' : m.c ? '#ffd86b' : byMe ? '#ffffff' : '#c8c2b4', big: !!m.c, pop: !!m.c, t0: t }); } }
+    else if (m.k === 'xp') { const e = ents.get(m.id); if (e) floats.push({ x: e.rx, y: e.ry, h: headY(e) + 14, txt: `+${m.v} EXP`, col: '#c9a6ff', t0: t + 180, life: 1300 }); }
     else if (m.k === 'die') { const e = ents.get(m.id); if (e) sfxAt('die', dist(e)); }
     else if (m.k === 'lvl') { const e = ents.get(m.id); if (e) { if (m.id === myId) sfx.level(); floats.push({ x: e.rx, y: e.ry, h: headY(e) + 10, txt: m.txt || 'LEVEL UP!', col: '#ffd86b', big: true, t0: t, life: 1800 }); rings.push({ x: e.rx, y: e.ry, col: '255,216,107', t0: t, life: 900, r: 40 }); } }
     else if (m.k === 'fx') {
@@ -242,7 +250,10 @@ function onMsg(m) {
     if (m.sys) { addLog(m.msg, 'sys'); if (/의뢰 (수락|완료)|주웠습니다/.test(m.msg)) sfx[/주웠/.test(m.msg) ? (/금화/.test(m.msg) ? 'coin' : 'pickup') : 'quest'](); else if (/가득|부족|없습니다|없어|않습니다|없는/.test(m.msg)) sfx.deny(); } else { addLog(`<b>${esc(m.n)}</b> ${esc(m.msg)}`, m.id === myId ? 'me near' : 'near'); const e = ents.get(m.id); if (e) { e.say = m.msg; e.sayT = t; } } }
 }
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-function addLog(html, cls) { const d = document.createElement('div'); d.className = cls || ''; d.innerHTML = html; const L = $('log'); L.appendChild(d); while (L.children.length > 40) L.firstChild.remove(); }
+function addLog(html, cls) {
+  // a repeated line (e.g. mashing A in town) bumps a ×N counter instead of flooding the log
+  const L0 = $('log').lastElementChild; if (L0 && L0.dataset.h === html && L0.className === (cls || '')) { const n = (+L0.dataset.n || 1) + 1; L0.dataset.n = n; L0.innerHTML = html + ` <span class="rep">×${n}</span>`; return; }
+  const d = document.createElement('div'); d.dataset.h = html; d.className = cls || ''; d.innerHTML = html; const L = $('log'); L.appendChild(d); while (L.children.length > 40) L.firstChild.remove(); }
 
 // ───────────────────────── input
 const cam = { x: 0, y: 0 }; let targetId = 0;
@@ -261,9 +272,9 @@ canvas.addEventListener('pointerdown', ev => {
 });
 let pinch = null, pressTimer = 0;
 canvas.addEventListener('touchstart', ev => { if (ev.touches.length === 2) { pinch = { d: Math.hypot(ev.touches[0].clientX - ev.touches[1].clientX, ev.touches[0].clientY - ev.touches[1].clientY), z: zoom }; } else if (ev.touches.length === 1) { const t0 = ev.touches[0]; clearTimeout(pressTimer); pressTimer = setTimeout(() => { const e = pickEntity(t0.clientX, t0.clientY); if (e && e.kind === 1) playerMenu(e, t0.clientX, t0.clientY); }, 550); } }, { passive: true });
-canvas.addEventListener('touchmove', ev => { clearTimeout(pressTimer); if (pinch && ev.touches.length === 2) { const d = Math.hypot(ev.touches[0].clientX - ev.touches[1].clientX, ev.touches[0].clientY - ev.touches[1].clientY); zoom = clamp(pinch.z * d / pinch.d, .6, 1.8); ev.preventDefault(); } }, { passive: false });
+canvas.addEventListener('touchmove', ev => { clearTimeout(pressTimer); if (pinch && ev.touches.length === 2) { const d = Math.hypot(ev.touches[0].clientX - ev.touches[1].clientX, ev.touches[0].clientY - ev.touches[1].clientY); zoom = clamp(pinch.z * d / pinch.d, .6, 1.8); zoomSet = true; ev.preventDefault(); } }, { passive: false });
 canvas.addEventListener('touchend', () => { clearTimeout(pressTimer); pinch = null; }, { passive: true });
-canvas.addEventListener('wheel', ev => { zoom = clamp(zoom * (ev.deltaY > 0 ? .9 : 1.1), .6, 1.8); ev.preventDefault(); }, { passive: false });
+canvas.addEventListener('wheel', ev => { zoom = clamp(zoom * (ev.deltaY > 0 ? .9 : 1.1), .6, 1.8); zoomSet = true; ev.preventDefault(); }, { passive: false });
 $('minimap').addEventListener('pointerdown', ev => { if (!myId) return; const r = ev.currentTarget.getBoundingClientRect(); const x = (ev.clientX - r.left) / r.width * MAP, y = (ev.clientY - r.top) / r.height * MAP; send({ t: 'move', x, y }); dest = { x, y, t0: performance.now() }; });
 addEventListener('keydown', ev => {
   if (!myId) return; const inChat = document.activeElement === $('chatin');
@@ -286,7 +297,8 @@ addEventListener('keydown', ev => {
   else if (k === 'a' && me) { let best = null, bd = 9; for (const e of ents.values()) { if (e.kind !== 2 || e.st === 4) continue; const d = Math.hypot(e.x - me.x, e.y - me.y); if (d < bd) { bd = d; best = e; } } if (best) { targetId = best.id; send({ t: 'attack', id: best.id }); } else addLog('근처에 공격할 몬스터가 없습니다.', 'sys'); }
 });
 const CHANNELS = [['', '일반'], ['party', '파티'], ['guild', '길드'], ['all', '전체']]; let chan = 0;
-function setChan(i) { chan = (i + CHANNELS.length) % CHANNELS.length; const b = $('chatch'); b.textContent = CHANNELS[chan][1]; b.className = CHANNELS[chan][0]; $('chatin').placeholder = chan ? `${CHANNELS[chan][1]} 채팅` : 'Enter 키로 대화'; }
+function setChan(i) { chan = (i + CHANNELS.length) % CHANNELS.length; const b = $('chatch'); b.textContent = CHANNELS[chan][1]; b.className = CHANNELS[chan][0]; $('chatin').placeholder = chan ? `${CHANNELS[chan][1]} 채팅` : matchMedia('(pointer:coarse)').matches ? '눌러서 대화' : 'Enter 키로 대화'; }
+setChan(0);
 $('chatch').onclick = () => { setChan(chan + 1); $('chatin').focus(); };
 $('chatin').addEventListener('keydown', ev => { if (ev.key === 'Tab') { ev.preventDefault(); setChan(chan + 1); } });
 $('chatform').addEventListener('submit', ev => { ev.preventDefault(); let v = $('chatin').value.trim(); if (v && v[0] !== '/' && chan) v = { party: '/파티 ', guild: '/길 ', all: '/전체 ' }[CHANNELS[chan][0]] + v; if (v) send({ t: 'chat', msg: v }); $('chatin').value = ''; $('chatin').blur(); });
@@ -354,8 +366,11 @@ function star(g, x, y, r) { g.beginPath(); for (let i = 0; i < 10; i++) { const 
 // ───────────────────────── HUD
 let lastZone = '';
 const nightLabel = p => { const n = Math.sin((p - .25) * Math.PI * 2); return n < .2 ? '낮' : n < .6 ? (p < .5 ? '황혼' : '새벽') : '밤'; };
+let camOff = 0; const bottomEl = document.querySelector('#hud .bottom');
 function hud() {
-  if (!meStats) return; const [hp, mhp, mp, mmp, lv, xp, need, gold, atk, def, align] = meStats;
+  if (!meStats) return;
+  // on phones the chat + hotbar cover the lower third: keep the hero centred in the open area above them
+  camOff = VW <= 640 ? Math.min(VH * .22, bottomEl.offsetHeight * .45) : 0; const [hp, mhp, mp, mmp, lv, xp, need, gold, atk, def, align] = meStats;
   $('hpb').style.width = (100 * hp / mhp) + '%'; $('hpt').textContent = `${hp} / ${mhp}`; $('mpb').style.width = (100 * mp / mmp) + '%'; $('mpt').textContent = `${mp} / ${mmp}`;
   $('pcls').classList.toggle('bless', !!meStats[20]);
   $('xpb').style.width = (100 * xp / need) + '%'; $('xpt').textContent = `${(100 * xp / need).toFixed(1)}%`; $('plv').textContent = lv; $('gold').textContent = gold;
@@ -365,10 +380,12 @@ function hud() {
   $('online').textContent = `주변 ${online}명 · ${latency}ms`; $('pcls').textContent = classInfo(meStats[11]).name; const sk = classInfo(meStats[11]).skill; $('skName').textContent = sk ? sk.name : '기술'; $('cdH').style.height = (100 * Math.min(1, meStats[12] / 5000)) + '%'; $('cdS').style.height = (sk ? 100 * Math.min(1, meStats[13] / meStats[14]) : 100) + '%';
   const sk2 = classInfo(meStats[11]).skill2; $('sk2Name').textContent = sk2 ? sk2.name : '기술2'; $('cdD').style.height = (sk2 ? 100 * Math.min(1, meStats[18] / meStats[19]) : 100) + '%';
   const bb = $('bossbar'); const tgb = ents.get(targetId); if (tgb && tgb.boss && tgb.st !== 4) { bb.hidden = false; tip('boss'); $('bossname').textContent = `${tgb.name} · Lv ${tgb.level}`; $('bosshp').style.width = (100 * tgb.hp / tgb.maxHp) + '%'; $('bosshpt').textContent = `${tgb.hp} / ${tgb.maxHp}`; } else bb.hidden = true;
-  const hr = Math.floor((dayPhase * 24 + 6) % 24); if (me) setAmbience({ rain: weather === 1 ? 1 : 0, fountain: Math.max(0, 1 - Math.hypot(me.x - CX, me.y - CY - .5) / 10), night: Math.max(0, Math.sin((dayPhase - .25) * Math.PI * 2)), hour: hr, inTown: isSafe(me.x, me.y) }); $('clock').textContent = `${String(hr).padStart(2, '0')}시 ${nightLabel(dayPhase)}`;
+  // darkness peaks at phase .5 and is lightest at 0, so phase 0 is noon and .5 is midnight
+  const hr = Math.floor((dayPhase * 24 + 12) % 24); if (me) setAmbience({ rain: weather === 1 ? 1 : 0, fountain: Math.max(0, 1 - Math.hypot(me.x - CX, me.y - CY - .5) / 10), night: Math.max(0, Math.sin((dayPhase - .25) * Math.PI * 2)), hour: hr, inTown: isSafe(me.x, me.y) }); $('clock').textContent = `${String(hr).padStart(2, '0')}시 ${nightLabel(dayPhase)}`;
   const cnt = id => ui.state.inv.filter(x => x.id === id).reduce((a, x) => a + x.n, 0); $('n1').textContent = cnt('hpPotion'); $('n2').textContent = cnt('mpPotion'); $('n3').textContent = cnt('scroll');
-  const tg = ents.get(targetId); if (tg && tg.st !== 4) { $('target').hidden = false; $('tname').textContent = tg.name; $('tlv').textContent = `Lv ${tg.level}`; $('thpb').style.width = (100 * tg.hp / tg.maxHp) + '%'; } else $('target').hidden = true;
-  $('dead').hidden = !(me && me.st === 4);
+  const tg = ents.get(targetId); if (tg && tg.st !== 4) { $('target').hidden = false; $('tname').textContent = tg.name; $('tlv').textContent = `Lv ${tg.level}`; $('thpb').style.width = (100 * tg.hp / tg.maxHp) + '%'; $('thpt').textContent = `${tg.hp} / ${tg.maxHp}`; } else $('target').hidden = true;
+  const dead = !!(me && me.st === 4); if (dead && !deadAt) deadAt = performance.now(); else if (!dead) deadAt = 0; $('dead').hidden = !dead;
+  if (dead) { const s = Math.max(0, Math.ceil(5 - (performance.now() - deadAt) / 1000)); $('deadt').textContent = s ? `${s}초 뒤 마을 광장에서 깨어납니다` : '깨어나는 중…'; }
   const rb = $('raidbar'); if (raidState) { rb.hidden = false; const DIRN = { S: '남', E: '동', N: '북', W: '서' }; rb.textContent = `⚔ ${DIRN[raidState[0]]}문 습격 · 남은 ${raidState[1]}마리 · ${Math.floor(raidState[2] / 60)}:${String(raidState[2] % 60).padStart(2, '0')}`; } else rb.hidden = true;
 }
 
@@ -377,16 +394,18 @@ let last = performance.now(), frameN = 0;
 function frame(t) {
   const dt = Math.min(.05, (t - last) / 1000); last = t; frameN++;
   for (const e of ents.values()) { if (e.rx === null) continue; const k = Math.min(1, dt * 14); e.rx += (e.x - e.rx) * k; e.ry += (e.y - e.ry) * k; }
-  if (me && me.rx !== null) { const [sx, sy] = toS(me.rx, me.ry); cam.x += (sx - cam.x) * Math.min(1, dt * 10); cam.y += (sy - 24 - cam.y) * Math.min(1, dt * 10); }
+  if (me && me.rx !== null) { const [sx, sy] = toS(me.rx, me.ry); const k = entering ? 1 : Math.min(1, dt * 10); cam.x += (sx - cam.x) * k; cam.y += (sy - 24 + camOff / zoom - cam.y) * k; }
   ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.fillStyle = '#14130f'; ctx.fillRect(0, 0, canvas.width, canvas.height);
   if (myId) {
     const s = DPR * zoom; ctx.setTransform(s, 0, 0, s, (VW / 2 - cam.x * zoom) * DPR, (VH / 2 - cam.y * zoom) * DPR);
     const hw = VW / 2 / zoom + TW * 2, hh = VH / 2 / zoom + TH * 2;
     // ground chunks overlapping the view
-    chunkBudget = 2; const corners = [toW(cam.x - hw, cam.y - hh), toW(cam.x + hw, cam.y - hh), toW(cam.x - hw, cam.y + hh), toW(cam.x + hw, cam.y + hh)];
+    // while entering, build every visible chunk behind the join screen so the world never appears half-drawn
+    chunkBudget = entering ? 64 : 2; const corners = [toW(cam.x - hw, cam.y - hh), toW(cam.x + hw, cam.y - hh), toW(cam.x - hw, cam.y + hh), toW(cam.x + hw, cam.y + hh)];
     const cx0 = clamp(Math.floor(Math.min(...corners.map(c => c[0])) / CH), 0, MAP / CH - 1), cx1 = clamp(Math.floor(Math.max(...corners.map(c => c[0])) / CH), 0, MAP / CH - 1);
     const cy0 = clamp(Math.floor(Math.min(...corners.map(c => c[1])) / CH), 0, MAP / CH - 1), cy1 = clamp(Math.floor(Math.max(...corners.map(c => c[1])) / CH), 0, MAP / CH - 1);
     for (let cy = cy0; cy <= cy1; cy++) for (let cx = cx0; cx <= cx1; cx++) { const c = getChunk(cx, cy); if (c) ctx.drawImage(c.c, c.left, c.top, c.w, c.h); }
+    if (entering && me && me.rx !== null && meStats) { entering = false; $('join').hidden = true; $('hud').hidden = false; $('jerr').textContent = ''; }
     // water shimmer
     ctx.strokeStyle = 'rgba(210,235,255,.22)'; ctx.lineWidth = 1.2; ctx.beginPath();
     for (let x = Math.max(0, Math.floor(Math.min(...corners.map(c => c[0])))); x < Math.min(MAP, Math.ceil(Math.max(...corners.map(c => c[0])))); x++) { const y = W.riverY[x]; for (const yy of [y - 1, y, y + 1]) { const [sx, sy] = toS(x + .5, yy + .5); if (Math.abs(sx - cam.x) > hw || Math.abs(sy - cam.y) > hh) continue; const ph = t / 900 + x * .7 + yy; ctx.moveTo(sx - 10 + Math.sin(ph) * 6, sy + Math.cos(ph * .8) * 3); ctx.quadraticCurveTo(sx + Math.sin(ph) * 6, sy - 3 + Math.cos(ph * .8) * 3, sx + 10 + Math.sin(ph) * 6, sy + Math.cos(ph * .8) * 3); } }
@@ -409,9 +428,15 @@ function frame(t) {
     // labels, hp bars, chat bubbles, floating numbers (screen-aligned)
     ctx.textAlign = 'center';
     for (const o of statics) if (o.name && o.building !== 'well' && !o.building.startsWith('home')) { const [sx, sy] = toS(o.x, o.y); if (Math.abs(sx - cam.x) > hw || Math.abs(sy - cam.y) > hh) continue; ctx.font = "500 11px 'Noto Sans KR'"; const tw = ctx.measureText(o.name).width + 14; ctx.fillStyle = 'rgba(16,14,12,.78)'; ctx.fillRect(sx - tw / 2, sy + 8, tw, 18); ctx.fillStyle = '#e8d3a4'; ctx.fillText(o.name, sx, sy + 21); }
+    // loot labels: nudge upward past labels already placed so a pile of drops stays readable
+    const placed = []; ctx.font = "500 10.5px 'Noto Sans KR'";
+    const dd = e => Math.hypot(e.x - (me ? me.x : 0), e.y - (me ? me.y : 0));
+    const drops = [...ents.values()].filter(e => e.kind === 3 && e.rx !== null && (e.id === hoverId || dd(e) <= 5)).sort((a, b) => (b.id === hoverId) - (a.id === hoverId) || dd(a) - dd(b)).slice(0, 8).sort((a, b) => (b.rx + b.ry) - (a.rx + a.ry));
+    for (const e of drops) { const [sx, sy] = toS(e.rx, e.ry); const w = ctx.measureText(e.name).width + 6; let y = sy - 26;
+      for (let n = 0; n < 12 && placed.some(r => Math.abs(r[0] - sx) < (r[2] + w) / 2 && Math.abs(r[1] - y) < 12); n++) y -= 12;
+      placed.push([sx, y, w]); ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,.85)'; ctx.strokeText(e.name, sx, y); ctx.fillStyle = e.sprite === 'gold' ? '#ffd86b' : '#e8e0cf'; ctx.fillText(e.name, sx, y); }
     for (const e of ents.values()) {
-      if (e.rx === null || e.st === 4) continue; const [sx, sy] = toS(e.rx, e.ry);
-      if (e.kind === 3) { if (e.id !== hoverId && Math.hypot(e.x - (me ? me.x : 0), e.y - (me ? me.y : 0)) > 5) continue; ctx.font = "500 10.5px 'Noto Sans KR'"; ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,.85)'; ctx.strokeText(e.name, sx, sy - 26); ctx.fillStyle = e.sprite === 'gold' ? '#ffd86b' : '#e8e0cf'; ctx.fillText(e.name, sx, sy - 26); continue; }
+      if (e.rx === null || e.st === 4 || e.kind === 3) continue; const [sx, sy] = toS(e.rx, e.ry);
       const y = sy - headY(e) - 8;
       ctx.font = (e.id === myId || e.boss ? "700 12px" : "500 11px") + " 'Noto Sans KR'"; const label = e.kind === 2 ? `${e.name} Lv${e.level}` : e.title ? `${e.title} ${e.name}` : e.name;
       if (!SETTINGS.names && e.id !== myId && e.id !== targetId && !e.boss) continue; if (SETTINGS.hideOthersNames && e.kind === 1 && e.id !== myId && e.id !== targetId && !inParty(e.id)) continue;
@@ -421,7 +446,9 @@ function frame(t) {
       if (e.kind !== 4 && e.id !== myId && (e.hp < e.maxHp || e.id === targetId)) { ctx.fillStyle = 'rgba(0,0,0,.7)'; ctx.fillRect(sx - 18, y + 4, 36, 5); ctx.fillStyle = e.id === targetId ? '#ff5a4a' : '#c0392b'; ctx.fillRect(sx - 18, y + 4, 36 * clamp(e.hp / e.maxHp, 0, 1), 5); }
       if (e.say && t - e.sayT < 5000) { ctx.font = "500 12px 'Noto Sans KR'"; const txt = e.say.length > 28 ? e.say.slice(0, 27) + '…' : e.say; const w = ctx.measureText(txt).width + 16; ctx.fillStyle = 'rgba(250,246,236,.94)'; ctx.fillRect(sx - w / 2, y - 34, w, 22); ctx.beginPath(); ctx.moveTo(sx - 5, y - 12); ctx.lineTo(sx + 5, y - 12); ctx.lineTo(sx, y - 6); ctx.fill(); ctx.fillStyle = '#1a1612'; ctx.fillText(txt, sx, y - 19); }
     }
-    for (let i = floats.length - 1; i >= 0; i--) { const f = floats[i]; const life = f.life || 900; const p = (t - f.t0) / life; if (p >= 1) { floats.splice(i, 1); continue; } const [sx, sy] = toS(f.x, f.y); ctx.font = `700 ${f.big ? 17 : 14}px 'Noto Sans KR'`; ctx.globalAlpha = 1 - p * p; ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,.85)'; const y = sy - f.h - 12 - p * 34; ctx.strokeText(f.txt, sx, y); ctx.fillStyle = f.col; ctx.fillText(f.txt, sx, y); ctx.globalAlpha = 1; }
+    for (let i = floats.length - 1; i >= 0; i--) { const f = floats[i]; const life = f.life || 900; const p = (t - f.t0) / life; if (p >= 1) { floats.splice(i, 1); continue; } if (p < 0) continue; const [sx0, sy] = toS(f.x, f.y); const sx = sx0 + (f.dx || 0) * Math.min(1, p * 4);
+      // crits pop in large then settle
+      const size = (f.big ? 17 : 14) * (f.pop ? 1 + Math.max(0, .6 - p * 3) : 1); ctx.font = `700 ${size.toFixed(1)}px 'Noto Sans KR'`; ctx.globalAlpha = 1 - p * p; ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,.85)'; const y = sy - f.h - 12 - p * 34; ctx.strokeText(f.txt, sx, y); ctx.fillStyle = f.col; ctx.fillText(f.txt, sx, y); ctx.globalAlpha = 1; }
     // weather (server-synchronised): rain streaks + cool tint, or fog with a clear circle around the player
     weatherAmt += ((weather ? 1 : 0) - weatherAmt) * Math.min(1, dt * .5);
     if (weatherAmt > .02) { ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
@@ -438,6 +465,9 @@ function frame(t) {
       ctx.globalCompositeOperation = 'source-over'; }
     // vignette
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0); const vg = ctx.createRadialGradient(VW / 2, VH / 2, Math.min(VW, VH) * .45, VW / 2, VH / 2, Math.max(VW, VH) * .75); vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,0,.45)'); ctx.fillStyle = vg; ctx.fillRect(0, 0, VW, VH);
+    // red edge flash when we take damage, plus a steady pulse while health is low
+    const hp01 = meStats ? meStats[0] / Math.max(1, meStats[1]) : 1; const hurtA = Math.max(0, 1 - (t - hurtT) / 450) * hurtAmt * .5 + (hp01 < .35 && hp01 > 0 ? (.2 + .1 * Math.sin(t / 220)) * Math.min(1, .4 + (1 - hp01 / .35)) : 0);
+    if (hurtA > .01) { const hg = ctx.createRadialGradient(VW / 2, VH / 2, Math.min(VW, VH) * .35, VW / 2, VH / 2, Math.max(VW, VH) * .7); hg.addColorStop(0, 'rgba(160,0,0,0)'); hg.addColorStop(1, `rgba(170,10,0,${hurtA})`); ctx.fillStyle = hg; ctx.fillRect(0, 0, VW, VH); }
     if (frameN % 4 === 0) { hud(); drawMinimap(); }
     const pe = pickEntity(lastMouse[0], lastMouse[1]); hoverId = pe ? pe.id : 0; canvas.style.cursor = pe ? 'pointer' : 'crosshair';
   }

@@ -39,7 +39,10 @@ check(A.inv && A.inv.inv.some(x => x.id === 'hpPotion' && x.n === 5) && A.inv.eq
 const npcs = [...A.meta.values()].filter(m => m[1] === 4); check(npcs.length >= 6, `NPCs present (${npcs.length})`);
 
 // shop: walk to the merchant, buy and equip armour
-A.send({ t: 'talk', npc: 'market' }); await sleep(6000);
+A.send({ t: 'talk', npc: 'market' });
+// meanwhile B walks south across the plaza: the server must move players at their real speed (4.2 tiles/s) even when its timer fires late
+B.send({ t: 'move', x: 88.5, y: 111.5 }); await sleep(500); const w0 = B.pos(), wt0 = performance.now(); await sleep(3000); const w1 = B.pos(), wSpeed = Math.hypot(w1[0] - w0[0], w1[1] - w0[1]) / ((performance.now() - wt0) / 1000);
+check(wSpeed > 3.6 && wSpeed < 4.8, `players move at real-time speed (${wSpeed.toFixed(2)} tiles/s)`); await sleep(2500);
 check(A.npc && A.npc.id === 'market' && A.npc.shop.includes('leatherArmor'), 'talking to the merchant opens her shop');
 const g0 = A.inv.gold; A.send({ t: 'buy', npc: 'market', item: 'leatherArmor' }); await sleep(300);
 check(A.inv.gold === g0 - 150 && A.inv.inv.some(x => x.id === 'leatherArmor'), 'buy leather armour for 150 G');
@@ -62,6 +65,8 @@ A.send({ t: 'move', x: 88.5, y: 104.5 }); await sleep(6000); await sleep(6000); 
 // hunt: kill a monster, loot appears on the ground with owner priority
 let killed = false; for (let i = 0; i < 6 && !killed; i++) { const mon = [...A.ents.values()].filter(e => A.meta.get(e[0])?.[1] === 2 && A.meta.get(e[0])?.[3] === 'skel_minion' && e[4] !== 4).sort((p, q) => Math.hypot(p[1] - A.pos()[0], p[2] - A.pos()[1]) - Math.hypot(q[1] - A.pos()[0], q[2] - A.pos()[1]))[0]; if (!mon) break; A.send({ t: 'attack', id: mon[0] }); for (let k = 0; k < 20 && !killed; k++) { await sleep(500); if (A.evs.some(e => e.k === 'die' && e.id === mon[0])) killed = true; if (A.me[0] < A.me[1] * .35) { const hp = A.inv.inv.findIndex(x => x.id === 'hpPotion'); if (hp >= 0) A.send({ t: 'use', i: hp, id: 'hpPotion' }); } } }
 check(killed, 'player kills a monster');
+check(A.evs.some(e => e.k === 'dmg' && e.a === A.id && e.b !== A.id), 'damage events name the attacker (combat feedback)');
+check(A.evs.some(e => e.k === 'xp' && e.id === A.id && e.v > 0) && !B.evs.some(e => e.k === 'xp' && e.id === A.id), 'killer alone receives an EXP gain event');
 await sleep(400); const dpos = A.pos(); const drop = [...A.ents.values()].filter(e => A.meta.get(e[0])?.[1] === 3 && A.meta.get(e[0])?.[3] === 'gold').sort((p, q) => Math.hypot(p[1] - dpos[0], p[2] - dpos[1]) - Math.hypot(q[1] - dpos[0], q[2] - dpos[1]))[0];
 check(!!drop, 'gold drops on the ground');
 B.send({ t: 'pick', id: drop?.[0] });

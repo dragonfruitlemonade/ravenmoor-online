@@ -13,7 +13,7 @@
 
 <div id="hud" hidden>
   <div class="top">
-    <div class="panel status">
+    <div class="panel status" id="status">
       <div class="nm"><span id="pname"></span><small>Lv <b id="plv">1</b> <span id="pcls">평민</span></small></div>
       <div class="bar hp"><i id="hpb"></i><span id="hpt"></span></div>
       <div class="bar mp"><i id="mpb"></i><span id="mpt"></span></div>
@@ -27,7 +27,7 @@
   <div id="invites"></div>
   <div id="notice" class="panel" hidden></div>
   <div id="tip" class="panel" hidden></div>
-  <div class="panel target" id="target" hidden><div class="tn"><span id="tname"></span><em id="tlv"></em></div><div class="bar hp"><i id="thpb"></i></div></div>
+  <div class="panel target" id="target" hidden><div class="tn"><span id="tname"></span><em id="tlv"></em></div><div class="bar hp"><i id="thpb"></i><span id="thpt"></span></div></div>
   <div class="bottom">
     <div class="chat">
       <div class="chattabs" id="chattabs"><button class="on" data-f="">모두</button><button data-f="near">주변</button><button data-f="party">파티</button><button data-f="guild">길드</button><button data-f="whisper">귓속말</button><button data-f="sys">알림</button></div>
@@ -71,7 +71,7 @@
     <p class="note">캐릭터는 서버에 저장되어 어느 기기에서든 이어서 할 수 있습니다.</p>
   </form>
 </div>
-<div id="dead" hidden>쓰러졌습니다…</div>
+<div id="dead" hidden><b>쓰러졌습니다…</b><small id="deadt"></small></div>
 <div id="reconn" class="panel" hidden></div>
 <div id="settings" class="win" hidden></div>
 <script type="module" src="/client/main.js"></script>

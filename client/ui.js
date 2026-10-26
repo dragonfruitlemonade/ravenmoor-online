@@ -55,7 +55,16 @@ export function createUI({ MF, send, log }) {
   makeWin('guild', '길드', { right: '16px', top: '200px', width: 'min(400px, calc(100vw - 32px))' });
   makeWin('board', '순위표', { left: '50%', top: '50%', transform: 'translate(-50%,-50%)', width: 'min(420px, calc(100vw - 32px))' });
   const body = k => wins[k].querySelector('.wb');
-  const show = k => { wins[k].hidden = false; wins[k].style.zIndex = ++z; render(k); };
+  // keep a window fully on screen: desktop positions (e.g. left:350px) and dragged spots can fall outside a phone or a resized window
+  function fit(w) {
+    if (w.hidden) return; const r = w.getBoundingClientRect(), m = 8;
+    if (r.left >= 0 && r.top >= 0 && r.right <= innerWidth && r.bottom <= innerHeight) return;
+    const left = Math.max(m, Math.min(innerWidth - r.width - m, r.left)), top = Math.max(m, Math.min(innerHeight - r.height - m, r.top));
+    Object.assign(w.style, { left: left + 'px', top: top + 'px', right: 'auto', bottom: 'auto', transform: 'none' });
+  }
+  addEventListener('resize', () => Object.values(wins).forEach(fit));
+  // phones have room for one window at a time (shop/trade stay open so the bag can be used beside them)
+  const show = k => { if (innerWidth <= 640) for (const o of Object.keys(wins)) if (o !== k && o !== 'npc' && o !== 'trade' && !wins[o].hidden) hide(o); wins[k].hidden = false; wins[k].style.zIndex = ++z; render(k); fit(wins[k]); };
   const hide = k => { wins[k].hidden = true; if (k === 'npc') { state.npc = null; send({ t: 'npcclose' }); } if (k === 'trade' && state.trade) { send({ t: 'tcancel' }); state.trade = null; } };
   const toggle = k => wins[k].hidden ? show(k) : hide(k);
   const anyOpen = () => Object.values(wins).some(w => !w.hidden);

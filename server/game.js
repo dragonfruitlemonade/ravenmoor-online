@@ -9,7 +9,6 @@ import { createGuilds } from './guild.js';
 import { createMarket } from './market.js';
 
 const W = buildWorld();
-const DT = 1 / TICK_HZ;
 const R = Math.random;
 let nextId = 1;
 const ents = new Map();          // id -> entity (player | monster | drop | npc)
@@ -135,7 +134,7 @@ function attack(a, b) {
 function damage(b, dmg, a, crit) {
   if (b.dead) return;
   b.hp -= dmg; b.combatT = now(); if (a) a.combatT = now();
-  broadcastNear(b.x, b.y, { t: 'ev', k: 'dmg', b: b.id, v: dmg, c: crit ? 1 : 0 });
+  broadcastNear(b.x, b.y, { t: 'ev', k: 'dmg', b: b.id, v: dmg, c: crit ? 1 : 0, a: a ? a.id : 0 });
   if (isMonster(b) && (!b.target || !ents.has(b.target.id))) b.target = a;
   if (isPlayer(b) && !b.target && !b.path && a) { b.target = a; b.engaged = true; }
   if (isPlayer(a) && isPlayer(b) && b.align >= 0 && !(b.flagT > now())) { if (!(a.flagT > now())) sys(a, '선량한 모험가를 공격했습니다. 1분 동안 보라색 이름(공격자)으로 표시됩니다.'); a.flagT = now() + 60000; bump(a); }
@@ -177,7 +176,7 @@ function kill(b, a) {
   }
 }
 function gainExp(p, n) {
-  p.exp += n; let up = false;
+  p.exp += n; let up = false; if (n > 0) sendTo(p, { t: 'ev', k: 'xp', id: p.id, v: Math.round(n) });
   while (p.exp >= expNeed(p.level)) { p.exp -= expNeed(p.level); p.level++; up = true; }
   p.saveDirty = true;
   if (up) { applyStats(p, true); bump(p); checkTitles(p); broadcastNear(p.x, p.y, { t: 'ev', k: 'lvl', id: p.id, lv: p.level }); sys(p, `레벨 ${p.level} 달성!` + (p.level >= CLASS_LEVEL && p.cls === 'commoner' ? ' 이제 전직할 수 있습니다. 기사단·마법사 탑·예배당·여관의 스승을 찾아가세요.' : p.level >= ADV_LEVEL && CLASSES[p.cls] && ADV_OF[p.cls] ? ' 스승에게 돌아가면 승급(2차 전직)할 수 있습니다.' : '')); }
@@ -388,9 +387,10 @@ export const raidInfo = () => raid ? { gate: raid.gate.dir, left: raid.left, unt
 
 let lastSnap = 0, lastSave = 0;
 setInterval(() => { for (const c of [...clients]) { if (!c.player && now() - c.lastMsg > 20000) { c.sock.close(); continue; } if (now() - c.sock.lastPong > 45000 && now() - c.lastMsg > 45000) { c.sock.close(); continue; } c.sock.ping(); } }, 15000).unref();
-const perf = { tickMs: 0, maxMs: 0, n: 0 };
+const perf = { tickMs: 0, maxMs: 0, n: 0 }; let lastTick = performance.now();
 setInterval(() => {
-  const t0 = performance.now(); rebuildGrid();
+  // advance by the real elapsed time: timers fire late (Windows ~62ms for 50ms, or a busy server), and a fixed step would slow the whole world down
+  const t0 = performance.now(); const DT = Math.min(.1, Math.max(.001, (t0 - lastTick) / 1000)); lastTick = t0; rebuildGrid();
   const players = [...ents.values()].filter(isPlayer);
   for (const e of [...ents.values()]) {
     if (isPlayer(e)) { playerTick(e, DT); if (!e.dead) effectsTick(e); continue; }
