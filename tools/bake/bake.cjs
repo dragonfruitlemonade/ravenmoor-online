@@ -14,6 +14,8 @@ function findFile(dir,name){for(const e of fs.readdirSync(dir,{withFileTypes:tru
     if(!rel||!fs.existsSync(path.join(ROOT,rel))){console.warn('missing model',s.key,s.file);s.skip=true;}s.path=rel;
   }
   cfg.statics=cfg.statics.filter(s=>!s.skip);
+  for(const ic of cfg.icons||[]){const f=findFile(path.join(ROOT,cfg.iconRoot),ic.file);if(!f){console.warn('missing icon model',ic.key);ic.skip=true;continue;}ic.path=path.relative(ROOT,f);}
+  cfg.icons=(cfg.icons||[]).filter(i=>!i.skip);
   const srv=http.createServer((req,res)=>{const u=decodeURIComponent(req.url.split('?')[0]);const f=path.join(ROOT,u);if(!f.startsWith(ROOT)||!fs.existsSync(f)||fs.statSync(f).isDirectory()){res.writeHead(404);return res.end();}res.writeHead(200,{'content-type':MIME[path.extname(f)]||'application/octet-stream'});fs.createReadStream(f).pipe(res);}).listen(0,'127.0.0.1');
   await new Promise(r=>srv.once('listening',r));const port=srv.address().port;
   const browser=await chromium.launch({args:['--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader']});
@@ -33,6 +35,7 @@ function findFile(dir,name){for(const e of fs.readdirSync(dir,{withFileTypes:tru
     mf.characters[c.key]=entry;console.log(`character ${c.key}: ${Object.keys(entry.anims).join(', ')}  (visible meshes: ${c.visible.join(', ')})`);
   }
   for(const s of res.statics){const file=`${s.key}.png`;save(file,s.png);mf.statics[s.key]={file,w:s.w,h:s.h,ax:s.ax,ay:s.ay,foot:s.foot,height:s.height};console.log(`static ${s.key}: ${s.w}x${s.h} foot ${s.foot.join('x')} h ${s.height}`);}
+  mf.icons=mf.icons||{};for(const ic of res.icons||[]){const file=`icon_${ic.key}.png`;save(file,ic.png);mf.icons[ic.key]=file;console.log('icon',ic.key);}
   fs.writeFileSync(mfPath,JSON.stringify(mf,null,1));
   console.log(`done in ${((Date.now()-t0)/1000).toFixed(1)}s`);
   await browser.close();srv.close();

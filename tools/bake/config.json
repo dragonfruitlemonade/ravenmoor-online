@@ -440,5 +440,50 @@
    "file": "**/flag_red.gltf",
    "scale": 3.2
   }
+ ],
+ "iconRoot": "assets-src/KayKit-Character-Pack-Adventures-1.0/addons/kaykit_character_pack_adventures/Assets/gltf",
+ "icons": [
+  {
+   "key": "dagger",
+   "file": "dagger.gltf"
+  },
+  {
+   "key": "sword",
+   "file": "sword_1handed.gltf"
+  },
+  {
+   "key": "sword2",
+   "file": "sword_2handed.gltf"
+  },
+  {
+   "key": "axe1",
+   "file": "axe_1handed.gltf"
+  },
+  {
+   "key": "axe2",
+   "file": "axe_2handed.gltf"
+  },
+  {
+   "key": "staff",
+   "file": "staff.gltf"
+  },
+  {
+   "key": "shield_round",
+   "file": "shield_round_color.gltf",
+   "rz": 0,
+   "ry": 20
+  },
+  {
+   "key": "shield_badge",
+   "file": "shield_badge_color.gltf",
+   "rz": 0,
+   "ry": 20
+  },
+  {
+   "key": "shield_spikes",
+   "file": "shield_spikes_color.gltf",
+   "rz": 0,
+   "ry": 20
+  }
  ]
 }

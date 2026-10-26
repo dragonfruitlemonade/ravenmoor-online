@@ -92,12 +92,22 @@ async function bakeCharacter(item){
   return out;
 }
 
+async function bakeIcon(item){
+  const s=new THREE.Scene();s.add(new THREE.HemisphereLight(0xfff4e2,0x4a4030,1.3));const d=new THREE.DirectionalLight(0xfff0d6,2.4);d.position.set(-2,3,4);s.add(d);
+  const g=await loader.loadAsync('/'+item.path);const obj=g.scene;
+  const box0=new THREE.Box3().setFromObject(obj);const c=box0.getCenter(new THREE.Vector3());obj.position.sub(c);
+  const pivot=new THREE.Group();pivot.add(obj);pivot.rotation.set((item.rx||0)*Math.PI/180,(item.ry||0)*Math.PI/180,(item.rz??-45)*Math.PI/180);s.add(pivot);pivot.updateMatrixWorld(true);
+  const box=new THREE.Box3().setFromObject(pivot);const size=box.getSize(new THREE.Vector3());const m=Math.max(size.x,size.y)*0.56;
+  const cam=new THREE.OrthographicCamera(-m,m,m,-m,0.1,100);cam.position.set(0,0,20);cam.lookAt(0,0,0);
+  renderer.setSize(128,128,false);renderer.render(s,cam);return{key:item.key,png:snap()};
+}
 window.bakeAll=async(cfg,only)=>{
   CFG=cfg;
   if(cfg.animSource){const g=await loader.loadAsync('/'+cfg.animSource);animLib=g.animations;}
   const res={characters:[],statics:[]};
   for(const c of cfg.characters){if(only&&!only.includes(c.key))continue;res.characters.push(await bakeCharacter(c));}
   for(const st of cfg.statics){if(only&&!only.includes(st.key))continue;res.statics.push(await bakeStatic(st));}
+  res.icons=[];for(const ic of cfg.icons||[]){if(only&&!only.includes('icon_'+ic.key)&&!only.includes('icons'))continue;res.icons.push(await bakeIcon(ic));}
   return res;
 };
 window.READY=true;

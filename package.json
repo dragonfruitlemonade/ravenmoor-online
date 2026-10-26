@@ -5,10 +5,10 @@
   "type": "module",
   "description": "Isometric medieval web MMORPG — authoritative Node server, no runtime dependencies",
   "scripts": {
-    "start": "node server/index.js",
-    "test": "node tools/test-multiplayer.mjs",
+    "start": "node --disable-warning=ExperimentalWarning server/index.js",
+    "test": "node --disable-warning=ExperimentalWarning tools/test-multiplayer.mjs",
     "bake": "node tools/bake/bake.cjs",
     "fetch-assets": "bash tools/fetch-assets.sh"
   },
-  "engines": { "node": ">=20" }
+  "engines": { "node": ">=22.13" }
 }

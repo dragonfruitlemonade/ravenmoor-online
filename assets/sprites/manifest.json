@@ -753,5 +753,16 @@
  },
  "tileWidth": 64,
  "tileHeight": 32,
- "scale": 0.5
+ "scale": 0.5,
+ "icons": {
+  "dagger": "icon_dagger.png",
+  "sword": "icon_sword.png",
+  "sword2": "icon_sword2.png",
+  "axe1": "icon_axe1.png",
+  "axe2": "icon_axe2.png",
+  "staff": "icon_staff.png",
+  "shield_round": "icon_shield_round.png",
+  "shield_badge": "icon_shield_badge.png",
+  "shield_spikes": "icon_shield_spikes.png"
+ }
 }
