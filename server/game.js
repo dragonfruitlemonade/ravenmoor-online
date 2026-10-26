@@ -38,6 +38,7 @@ function canFight(a, b) {
   if (!(isPlayer(a) || isMonster(a)) || !(isPlayer(b) || isMonster(b))) return false;
   if (isMonster(a) && isMonster(b)) return false;
   if (isPlayer(a) && isPlayer(b) && (social.sameParty(a, b) || guilds.sameGuild(a, b))) return false;
+  if (isPlayer(a) && isPlayer(b) && (a.level < PK_MIN || b.level < PK_MIN)) return false;   // newcomers are neither prey nor hunters
   if (isSafe(a.x, a.y) || isSafe(b.x, b.y)) return false;
   return true;
 }
@@ -121,7 +122,7 @@ function attack(a, b) {
 }
 function damage(b, dmg, a, crit) {
   if (b.dead) return;
-  b.hp -= dmg;
+  b.hp -= dmg; b.combatT = now(); if (a) a.combatT = now();
   broadcastNear(b.x, b.y, { t: 'ev', k: 'dmg', b: b.id, v: dmg, c: crit ? 1 : 0 });
   if (isMonster(b) && (!b.target || !ents.has(b.target.id))) b.target = a;
   if (isPlayer(b) && !b.target && !b.path && a) { b.target = a; b.engaged = true; }
@@ -334,6 +335,7 @@ function setPathNpc(e, tx, ty) { return setPath(e, tx, ty); }
 function playerTick(p, dt) {
   if (p.dead) { if (now() >= p.respawnAt) { p.dead = false; p.x = SPAWN.x + (R() - .5) * 2; p.y = SPAWN.y + (R() - .5) * 2; applyStats(p, true); bump(p); } return; }
   if (p.stunT > now()) { p.moving = false; return; }
+  if (now() - (p.combatT || 0) > 6000 && (p.hp < p.maxHp || p.mp < p.maxMp)) { const town = isSafe(p.x, p.y) ? 2 : 1; p.hp = Math.min(p.maxHp, p.hp + p.maxHp * .015 * town * dt); p.mp = Math.min(p.maxMp, p.mp + p.maxMp * .02 * town * dt); }
   if (p.pick) { const d = ents.get(p.pick); if (!d) p.pick = 0; else if (dist(p, d) <= 1.2) { p.pick = 0; p.path = null; tryPick(p, d); } else if (!p.path) { setPath(p, d.x, d.y); if (!p.path) p.pick = 0; } }
   if (p.talk) { const n = npcById[p.talk]; if (n && dist(p, n) <= 2.2) { p.talk = null; p.path = null; talkTo(p, n); } else if (!p.path) p.talk = null; }
   if (p.npcOpen) { const n = npcById[p.npcOpen]; if (!n || dist(p, n) > 3.5) { p.npcOpen = null; sendTo(p, { t: 'npcclose' }); } }
@@ -350,6 +352,7 @@ function effectsTick(e) {
 // ── tick
 // ── gate raids: every 25–40 minutes (when someone is online) a skeleton warband appears outside a random gate.
 let raid = null, nextRaid = now() + 20 * 60000;
+const PK_MIN = 6;
 const DIRN = { S: '남', E: '동', N: '북', W: '서' };
 export function startRaid(force) {
   if (raid) return false; const players = [...ents.values()].filter(isPlayer); if (!players.length && !force) return false;
@@ -438,7 +441,7 @@ export function onConnection(sock) {
     if (m.t === 'move' || m.t === 'attack') p.npcOpen = null;
     switch (m.t) {
       case 'move': { const x = +m.x, y = +m.y; if (!(x >= 0 && y >= 0 && x < MAP && y < MAP)) return; clearIntent(); setPath(p, x, y); break; }
-      case 'attack': { const t = ents.get(+m.id); if (!t || t === p) return; if (!canFight(p, t)) { sys(p, isSafe(p.x, p.y) || isSafe(t.x, t.y) ? '마을 안에서는 싸울 수 없습니다. 성문 밖으로 나가세요.' : '공격할 수 없는 대상입니다.'); return; } clearIntent(); p.target = t; p.engaged = true; break; }
+      case 'attack': { const t = ents.get(+m.id); if (!t || t === p) return; if (!canFight(p, t)) { sys(p, isSafe(p.x, p.y) || isSafe(t.x, t.y) ? '마을 안에서는 싸울 수 없습니다. 성문 밖으로 나가세요.' : isPlayer(t) && (p.level < PK_MIN || t.level < PK_MIN) ? `레벨 ${PK_MIN} 미만의 모험가는 서로 공격할 수 없습니다.` : '공격할 수 없는 대상입니다.'); return; } clearIntent(); p.target = t; p.engaged = true; break; }
       case 'stop': clearIntent(); p.path = null; break;
       case 'pick': { const d = ents.get(+m.id); if (!d || d.kind !== 'drop') return; clearIntent(); p.pick = d.id; if (dist(p, d) > 1.2) setPath(p, d.x, d.y); break; }
       case 'talk': { const n = npcById[m.npc]; if (!n) return; clearIntent(); if (dist(p, n) <= 2.2) talkTo(p, n); else { p.talk = m.npc; setPath(p, n.x, n.y); } break; }

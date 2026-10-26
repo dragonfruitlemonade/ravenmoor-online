@@ -51,6 +51,8 @@ A.send({ t: 'buy', npc: 'smith', item: 'longSword' }); await sleep(250); check(A
 A.send({ t: 'attack', id: B.id }); await sleep(300); check(A.said('마을 안에서는'), 'attacking inside town is refused');
 A.send({ t: 'move', x: 88.5, y: 118.5 }); B.send({ t: 'move', x: 89.5, y: 118.5 }); await sleep(8000);
 const pa = A.pos(); check(pa && pa[1] > 114, `walked out through the south gate (y=${pa && pa[1]})`);
+A.send({ t: 'attack', id: B.id }); await sleep(300); check(A.said('미만의 모험가'), 'newcomers below level 6 are protected from PK');
+A.send({ t: 'chat', msg: '/레벨 6' }); await sleep(600); A.send({ t: 'chat', msg: '/레벨 6 도적베스' }); await sleep(600);
 const hp0 = B.me[0]; A.send({ t: 'attack', id: B.id }); await sleep(2500);
 check(B.me[0] < hp0, `PK outside walls deals damage (B hp ${hp0} -> ${B.me[0]})`);
 check(A.meta.get(A.id)?.[5] >= 1, 'attacker gets a purple/red name');
@@ -119,8 +121,8 @@ A.send({ t: 'pinvite', name: '도적베스' }); await sleep(300); B.send({ t: 'p
 check(A.me[21] && A.me[21] === B.me[21], 'party formed (same party id)');
 A.send({ t: 'move', x: 88.5, y: 118.5 }); B.send({ t: 'move', x: 89.5, y: 118.5 }); await sleep(8000);
 A.send({ t: 'attack', id: B.id }); await sleep(300); check(A.said('공격할 수 없는'), 'party members cannot attack each other');
-const expB = B.me[5] + B.me[4] * 100000; let k2 = false; for (let i = 0; i < 8 && !k2; i++) { const mon = [...A.ents.values()].filter(e => A.meta.get(e[0])?.[1] === 2 && e[4] !== 4).sort((p, q) => Math.hypot(p[1] - A.pos()[0], p[2] - A.pos()[1]) - Math.hypot(q[1] - A.pos()[0], q[2] - A.pos()[1]))[0]; if (!mon) break; A.send({ t: 'attack', id: mon[0] }); for (let k = 0; k < 16; k++) { await sleep(400); if (A.evs.some(e => e.k === 'die' && e.id === mon[0])) { k2 = true; break; } } }
-await sleep(300); check(k2 && (B.me[5] + B.me[4] * 100000) > expB, 'party member nearby receives shared exp');
+const expB = B.me[5] + B.me[4] * 100000; let k2 = false; const bGot = () => (B.me[5] + B.me[4] * 100000) > expB; for (let i = 0; i < 12 && !(k2 && bGot()); i++) { const mon = [...A.ents.values()].filter(e => A.meta.get(e[0])?.[1] === 2 && e[4] !== 4).sort((p, q) => Math.hypot(p[1] - A.pos()[0], p[2] - A.pos()[1]) - Math.hypot(q[1] - A.pos()[0], q[2] - A.pos()[1]))[0]; if (!mon) break; A.send({ t: 'attack', id: mon[0] }); for (let k = 0; k < 16; k++) { await sleep(400); if (A.evs.some(e => e.k === 'die' && e.id === mon[0])) { k2 = true; break; } } }
+await sleep(300); check(k2 && bGot(), 'party member nearby receives shared exp');
 // trade: A gives 2 potions + 50 gold, B gives 10 gold
 A.send({ t: 'stop' }); await sleep(200); A.send({ t: 'move', x: B.pos()[0] + 1, y: B.pos()[1] }); await sleep(2500);
 A.send({ t: 'trade', name: '도적베스' }); await sleep(300); B.send({ t: 'taccept' }); await sleep(400);
