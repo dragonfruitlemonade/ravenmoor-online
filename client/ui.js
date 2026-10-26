@@ -49,11 +49,13 @@ export function createUI({ MF, send, log }) {
     return w;
   }
   makeWin('inv', '가방', { right: '16px', top: '200px' }); makeWin('eq', '장비', { left: '16px', top: '220px' }); makeWin('char', '캐릭터', { left: '350px', top: '220px' });
-  makeWin('npc', '', { left: '50%', top: '50%', transform: 'translate(-50%,-50%)', width: 'min(500px, calc(100vw - 32px))' });
+  // centred windows hang from a fixed top edge so switching tabs (different heights) doesn't make them jump
+  const TOPC = { left: '50%', top: 'max(72px, 11vh)', transform: 'translateX(-50%)' };
+  makeWin('npc', '', { ...TOPC, width: 'min(500px, calc(100vw - 32px))' });
   makeWin('quest', '의뢰', { right: '16px', top: '200px', width: 'min(380px, calc(100vw - 32px))' });
-  makeWin('trade', '거래', { left: '50%', top: '50%', transform: 'translate(-50%,-50%)', width: 'min(520px, calc(100vw - 32px))' });
+  makeWin('trade', '거래', { ...TOPC, width: 'min(520px, calc(100vw - 32px))' });
   makeWin('guild', '길드', { right: '16px', top: '200px', width: 'min(400px, calc(100vw - 32px))' });
-  makeWin('board', '순위표', { left: '50%', top: '50%', transform: 'translate(-50%,-50%)', width: 'min(420px, calc(100vw - 32px))' });
+  makeWin('board', '순위표', { ...TOPC, width: 'min(420px, calc(100vw - 32px))' });
   const body = k => wins[k].querySelector('.wb');
   // keep a window fully on screen: desktop positions (e.g. left:350px) and dragged spots can fall outside a phone or a resized window
   function fit(w) {
@@ -139,7 +141,7 @@ export function createUI({ MF, send, log }) {
       else if (T === 'craft') h += `<p class="say">"재료를 가져오면 좋은 걸 벼려 주지."</p>` + n.craft.map(id => { const b = ITEMS[id]; let ok = true; const need = Object.entries(b.craft).map(([k2, v]) => { const have = k2 === 'gold' ? state.gold : state.inv.filter(x => x.id === k2).reduce((a, x) => a + x.n, 0); if (have < v) ok = false; return `<b class="${have >= v ? 'ok' : 'no'}">${k2 === 'gold' ? '금화' : ITEMS[k2].name} ${k2 === 'gold' ? v : have + '/' + v}</b>`; }).join(' · '); return `<div class="row"><img class="ri" src="${itemIcon(MF, id)}" alt=""><div><div class="nm">${b.name}</div><div class="ds">${itemDesc({ id })}</div><div class="need">${need}</div></div><div class="pr"><button class="btn" data-act="craft" data-id="${id}" ${ok ? '' : 'disabled'}>제작</button></div></div>`; }).join('');
       else if (T === 'enh') {
         const list = SLOTS.filter(s => state.equip[s]).map(s => ({ it: state.equip[s], src: 'eq', key: 'eq:' + s })).concat(state.inv.map((it, i) => ({ it, src: 'inv', i, key: 'inv:' + i })).filter(x => SLOTS.includes(ITEMS[x.it.id].type)));
-        h += `<p class="say">"+4부터는 실패하면 한 단계 깎인다. 각오하고 올려라."</p><div class="grid">${list.map(x => slot(x.it.id, 1, x.it.enh, `data-enh="${x.key}"`, state.selEnh === x.key)).join('')}</div>`;
+        h += `<p class="say">"+4부터는 실패하면 한 단계 깎인다. 각오하고 올려라."</p><div class="grid">${list.map(x => { const s = slot(x.it.id, 1, x.it.enh, `data-enh="${x.key}" title="${esc(itemName(x.it))}"`, state.selEnh === x.key); return x.src === 'eq' ? s.replace(/<\/div>$/, '<span class="eqmark">착용</span></div>') : s; }).join('')}</div>`;
         const sel = list.find(x => x.key === state.selEnh);
         if (sel) { const e = sel.it.enh || 0; const cost = enhCost(sel.it); h += detail({ ...sel.it, n: 1 }, e >= 9 ? '<span class="ds">최대 강화</span>' : `<div class="ds">성공 ${ENH_RATE[e]}%<br>${cost} G</div><button class="btn" data-act="enh" ${state.gold < cost ? 'disabled' : ''}>강화</button>`); }
         else h += hint(list.length ? '강화할 장비를 고르세요. 착용 중인 장비도 강화할 수 있습니다.' : '강화할 장비가 없습니다.');

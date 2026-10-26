@@ -73,7 +73,10 @@ html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);font-family:
 .btn{background:#2a2d3a;border:1px solid #0a0a0c;box-shadow:0 0 0 1px #4a4d57 inset;color:var(--fg);font-family:var(--body);font-size:12px;padding:4px 10px;cursor:pointer}.btn:hover{color:var(--gold)}.btn:disabled{opacity:.4;cursor:default}.btn.on{background:#45495c;color:var(--gold)}
 .tabs{display:flex;gap:4px;margin-bottom:10px;flex-wrap:wrap}
 .row{display:grid;grid-template-columns:36px 1fr auto;gap:10px;align-items:center;padding:7px 0;border-bottom:1px solid #23252e}.row:last-child{border-bottom:0}.row .nm{font-weight:500}.row .ri{width:36px;height:36px;object-fit:contain;background:#0b0c10;border:1px solid #2c2f3a}
-.row .pr{color:var(--gold);white-space:nowrap;text-align:right;display:flex;gap:6px;align-items:center;font-variant-numeric:tabular-nums}
+.row .pr{color:var(--gold);white-space:nowrap;text-align:right;display:flex;gap:6px;align-items:center;justify-content:flex-end;font-variant-numeric:tabular-nums}
+.slot .eqmark{position:absolute;left:2px;bottom:1px;font-size:9px;color:#8fd79a;text-shadow:0 1px 0 #000}
+/* list rows (icon · text · price/action) keep their grid inside windows, where .win .row is a flex form row */
+.win .row:has(> .pr){display:grid;margin-top:0}
 .ic{width:36px;height:36px;display:flex;align-items:center;justify-content:center;font-family:var(--display);font-weight:700;background:#2a2d3a;border:1px solid #0a0a0c;box-shadow:0 0 0 1px #4a4d57 inset;color:var(--gold)}
 .need{font-size:11px;color:var(--muted)}.need b{font-weight:500}.need .ok{color:#8fd79a}.need .no{color:#f28b7d}
 .stats{display:flex;gap:14px;font-size:12px;color:var(--muted);margin-bottom:10px}.stats b{color:var(--fg);font-weight:500}
