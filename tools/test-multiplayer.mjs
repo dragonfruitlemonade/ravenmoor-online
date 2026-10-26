@@ -12,7 +12,7 @@ function bot(token) {
   ws.onmessage = ev => { const m = JSON.parse(ev.data);
     if (m.t === 'welcome') b.id = m.id;
     if (m.t === 'snap') { for (const x of m.m) b.meta.set(x[0], x); for (const e of m.e) b.ents.set(e[0], e); for (const g of m.g) b.ents.delete(g); b.me = m.me; }
-    if (m.t === 'inv') b.inv = m; if (m.t === 'npc') b.npc = m;
+    if (m.t === 'inv') b.inv = m; if (m.t === 'npc') b.npc = m; if (m.t === 'titles') b.titles = m;
     if (m.t === 'chat') b.chat.push(m.msg); if (m.t === 'ev') b.evs.push(m); if (m.t === 'err') b.chat.push('ERR ' + m.msg); };
   b.send = o => ws.send(JSON.stringify(o));
   b.ready = new Promise(r => ws.onopen = () => { b.send({ t: 'join', token }); r(); });
@@ -131,6 +131,8 @@ check(A.inv.gold === gA - 40 && B.inv.gold === gB + 40, `trade gold settled (A $
 check(!A.inv.inv.some(x => x.id === 'hpPotion') && (B.inv.inv.find(x => x.id === 'hpPotion')?.n || 0) === nB + nA, 'trade items moved');
 // guild: create (admin gives level/gold), invite, accept, no friendly fire outside a party, chat, persistence over relogin
 A.send({ t: 'chat', msg: '/레벨 10' }); await sleep(600); A.send({ t: 'chat', msg: '/금화 5000' }); await sleep(600);
+A.send({ t: 'titles' }); await sleep(300); check(A.titles && A.titles.have.includes('skilled') && !A.titles.have.includes('veteran'), 'level 10 unlocks the 숙련된 title only');
+A.send({ t: 'title', id: 'skilled' }); await sleep(400); check(A.meta.get(A.id)?.[11] === '숙련된', 'chosen title appears in meta'); A.send({ t: 'title', id: 'legend' }); await sleep(300); check(A.said('아직 얻지 못한'), 'locked title refused');
 A.send({ t: 'guild', args: ['생성', '회색기사단'] }); await sleep(400); check(A.said('창설했습니다'), 'guild created');
 A.send({ t: 'ginvite', name: '도적베스' }); await sleep(300); B.send({ t: 'gaccept' }); await sleep(500);
 check(B.said('가입했습니다') && A.meta.get(B.id)?.[10] === '회색기사단', 'guild invite accepted and tag visible in meta');

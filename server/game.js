@@ -1,7 +1,7 @@
 // Authoritative game world. The server decides movement, combat, items, shops and rewards;
 // clients only send intentions (move / attack / use item / buy ...).
 import { MAP, TOWN, SPAWN, CX, CY, GATES, VIEW_RADIUS, TICK_HZ, SNAP_HZ, MONSTERS, LOOKS, buildWorld, isSafe, findPath, expNeed, dirOf, rng } from '../shared/world.js';
-import { ITEMS, SLOTS, INV_SIZE, DROPS, NPCS, CLASSES, CLASS_LEVEL, ADV, ADV_LEVEL, ADV_OF, classInfo, statsFor, itemStats, ENH_RATE, enhCost, sellPrice, itemName, BANK_SIZE, QUESTS } from '../shared/rules.js';
+import { TITLES, TITLE_BY, titleName, ITEMS, SLOTS, INV_SIZE, DROPS, NPCS, CLASSES, CLASS_LEVEL, ADV, ADV_LEVEL, ADV_OF, classInfo, statsFor, itemStats, ENH_RATE, enhCost, sellPrice, itemName, BANK_SIZE, QUESTS } from '../shared/rules.js';
 import { accountForToken, loadCharacter, saveCharacter } from './db.js';
 import { createSocial } from './social.js';
 import { adminCommand, logEvent, banInfo, isAdmin } from './admin.js';
@@ -142,6 +142,7 @@ function kill(b, a) {
       if (b.elite && R() < .25) spawnDrop(b.x, b.y, { id: ['ironHelm', 'chainMail', 'silverRing', 'longSword', 'ironShield'][Math.floor(R() * 5)], n: 1, enh: 1 + Math.floor(R() * 3) }, 0, a);
       social.shareExp(a, m.exp * mul, gainExp); questKill(a, b.type, b.elite);
       if (social.partyOf(a)) for (const mm of social.partyOf(a).members) if (mm !== a && !mm.dead && dist(mm, a) <= 22) questKill(mm, b.type, b.elite);
+      a.stats.mkills = (a.stats.mkills || 0) + 1; if (m.boss) { a.stats.bossKills = (a.stats.bossKills || 0) + 1; if (social.partyOf(a)) for (const mm of social.partyOf(a).members) if (mm !== a && dist(mm, a) <= 22) { mm.stats.bossKills = (mm.stats.bossKills || 0) + 1; checkTitles(mm); } } checkTitles(a);
       if (m.boss) broadcastAll({ t: 'chat', sys: true, msg: `👑 ${a.name}이(가) ${m.name}을(를) 쓰러뜨렸습니다!` });
       if (b.raid && raid) { raid.part.add(a.accountId); if (social.partyOf(a)) for (const mm of social.partyOf(a).members) if (dist(mm, a) <= 22) raid.part.add(mm.accountId); raid.left--; raidCheck(); }
     }
@@ -156,7 +157,7 @@ function kill(b, a) {
       const innocent = b.align >= 0 && !(b.flagT > now());
       if (innocent) { a.align -= 1; a.kills++; sys(a, `${b.name}을(를) 살해했습니다. 성향이 떨어져 카오틱(붉은 이름)이 됩니다.`); }
       else { a.align = Math.min(a.align + 1, 30); sys(a, `${b.name}을(를) 처단했습니다.`); }
-      bump(a); a.saveDirty = true;
+      a.stats.pks = (a.stats.pks || 0) + 1; b.stats.deaths = (b.stats.deaths || 0) + 1; checkTitles(a); bump(a); a.saveDirty = true;
       broadcastAll({ t: 'chat', sys: true, msg: `⚔ ${a.name}이(가) 성 밖에서 ${b.name}을(를) 쓰러뜨렸습니다.` }); logEvent('pk', a.name, b.name, { innocent, lost });
     }
     invChanged(b);
@@ -166,7 +167,7 @@ function gainExp(p, n) {
   p.exp += n; let up = false;
   while (p.exp >= expNeed(p.level)) { p.exp -= expNeed(p.level); p.level++; up = true; }
   p.saveDirty = true;
-  if (up) { applyStats(p, true); bump(p); broadcastNear(p.x, p.y, { t: 'ev', k: 'lvl', id: p.id, lv: p.level }); sys(p, `레벨 ${p.level} 달성!` + (p.level >= CLASS_LEVEL && p.cls === 'commoner' ? ' 이제 전직할 수 있습니다. 기사단·마법사 탑·예배당·여관의 스승을 찾아가세요.' : p.level >= ADV_LEVEL && CLASSES[p.cls] && ADV_OF[p.cls] ? ' 스승에게 돌아가면 승급(2차 전직)할 수 있습니다.' : '')); }
+  if (up) { applyStats(p, true); bump(p); checkTitles(p); broadcastNear(p.x, p.y, { t: 'ev', k: 'lvl', id: p.id, lv: p.level }); sys(p, `레벨 ${p.level} 달성!` + (p.level >= CLASS_LEVEL && p.cls === 'commoner' ? ' 이제 전직할 수 있습니다. 기사단·마법사 탑·예배당·여관의 스승을 찾아가세요.' : p.level >= ADV_LEVEL && CLASSES[p.cls] && ADV_OF[p.cls] ? ' 스승에게 돌아가면 승급(2차 전직)할 수 있습니다.' : '')); }
 }
 
 // ── skills
@@ -261,7 +262,7 @@ function service(p, m) {
     const q = QBY[m.q]; if (!q || q.giver !== n.npcId || !questReady(p, q)) return;
     if (q.type === 'collect') takeItem(p, q.target, q.n);
     const r = q.reward; p.gold += r.gold || 0; if (r.items) for (const [id, cnt] of Object.entries(r.items)) addItem(p, { id, n: cnt, enh: 0 });
-    p.quests[q.id].st = 'done'; if (q.daily) p.quests[q.id].day = dayKey(); sys(p, `의뢰 완료: ${q.title} · 금화 ${r.gold}${r.items ? ' · ' + Object.keys(r.items).map(k => ITEMS[k].name).join(', ') : ''}`); broadcastNear(p.x, p.y, { t: 'ev', k: 'fx', fx: 'craft', id: p.id }); if (r.exp) gainExp(p, r.exp);
+    p.quests[q.id].st = 'done'; if (q.daily) p.quests[q.id].day = dayKey(); checkTitles(p); sys(p, `의뢰 완료: ${q.title} · 금화 ${r.gold}${r.items ? ' · ' + Object.keys(r.items).map(k => ITEMS[k].name).join(', ') : ''}`); broadcastNear(p.x, p.y, { t: 'ev', k: 'fx', fx: 'craft', id: p.id }); if (r.exp) gainExp(p, r.exp);
   } else if (m.t === 'mlist') { if (n.market) market.list(p, m.i | 0, m.price);
   } else if (m.t === 'mbuy') { if (n.market) market.buy(p, m.id);
   } else if (m.t === 'mcancel') { if (n.market) market.cancel(p, m.id);
@@ -271,6 +272,11 @@ function service(p, m) {
   invChanged(p); refreshNpc(p);
 }
 // ── quests
+// titles
+function titlesOf(p) { return TITLES.filter(t => { try { return t.req(p, p.stats); } catch { return false; } }).map(t => t.id); }
+function sendTitles(p) { sendTo(p, { t: 'titles', have: titlesOf(p), cur: p.stats.title || 'none', stats: { mkills: p.stats.mkills || 0, bossKills: p.stats.bossKills || 0, pks: p.stats.pks || 0, deaths: p.stats.deaths || 0, raids: p.stats.raids || 0 } }); }
+function checkTitles(p) { const have = titlesOf(p); const had = p.stats.had || []; const fresh = have.filter(id => !had.includes(id) && id !== 'none' && id !== 'novice'); if (fresh.length) { p.stats.had = have; for (const id of fresh) sys(p, `🏅 새 칭호를 얻었습니다: 「${TITLE_BY[id].name}」 — ${TITLE_BY[id].desc} (캐릭터 창에서 선택)`); sendTitles(p); } p.saveDirty = true; }
+function setTitle(p, id) { if (!TITLE_BY[id] || !titlesOf(p).includes(id)) return sys(p, '아직 얻지 못한 칭호입니다.'); p.stats.title = id; p.metaVer++; p.saveDirty = true; sendTitles(p); }
 const dayKey = () => new Date(now() + 9 * 3600000).toISOString().slice(0, 10);   // KST calendar day
 function questState(p, q) { const s = p.quests[q.id]; if (s && q.daily && s.st === 'done' && s.day !== dayKey()) return p.level >= q.lvl ? 'avail' : 'locked'; return s ? s.st : (p.level >= q.lvl ? 'avail' : 'locked'); }
 function questProgress(p, q) { const s = p.quests[q.id]; if (!s) return 0; return q.type === 'collect' ? Math.min(q.n, countItem(p, q.target)) : (s.k || 0); }
@@ -358,7 +364,7 @@ export function startRaid(force) {
 }
 function raidCheck() {
   if (!raid) return;
-  if (raid.left <= 0) { const bonusG = 150 + 25 * Math.max(...raid.mons.map(m => m.level)), bonusX = 100 + 40 * Math.max(...raid.mons.map(m => m.level)); for (const acc of raid.part) { const p = online.get(acc); if (!p) continue; p.gold += bonusG; gainExp(p, bonusX); invChanged(p); sys(p, `습격 격퇴 보상: 금화 ${bonusG} · 경험치 ${bonusX}`); } broadcastAll({ t: 'chat', notice: true, msg: `🛡 ${DIRN[raid.gate.dir]}문의 습격을 물리쳤습니다! (참가 ${raid.part.size}명)` }); raid = null; nextRaid = now() + (25 + R() * 15) * 60000; return; }
+  if (raid.left <= 0) { const bonusG = 150 + 25 * Math.max(...raid.mons.map(m => m.level)), bonusX = 100 + 40 * Math.max(...raid.mons.map(m => m.level)); for (const acc of raid.part) { const p = online.get(acc); if (!p) continue; p.gold += bonusG; gainExp(p, bonusX); invChanged(p); p.stats.raids = (p.stats.raids || 0) + 1; checkTitles(p); sys(p, `습격 격퇴 보상: 금화 ${bonusG} · 경험치 ${bonusX}`); } broadcastAll({ t: 'chat', notice: true, msg: `🛡 ${DIRN[raid.gate.dir]}문의 습격을 물리쳤습니다! (참가 ${raid.part.size}명)` }); raid = null; nextRaid = now() + (25 + R() * 15) * 60000; return; }
   if (now() > raid.until) { for (const m of raid.mons) if (!m.dead) { m.dead = true; m.hp = 0; broadcastNear(m.x, m.y, { t: 'ev', k: 'die', id: m.id }); setTimeout(() => ents.delete(m.id), 2000); } broadcastAll({ t: 'chat', sys: true, msg: `해골 무리가 ${DIRN[raid.gate.dir]}문에서 물러갔습니다.` }); raid = null; nextRaid = now() + (25 + R() * 15) * 60000; }
 }
 setInterval(() => { if (raid) raidCheck(); else if (now() >= nextRaid) { if (!startRaid()) nextRaid = now() + 5 * 60000; } }, 5000).unref();
@@ -383,7 +389,7 @@ setInterval(() => {
 
 function meta(e) {
   const flag = isPlayer(e) ? (e.align < 0 ? 2 : e.flagT > now() ? 1 : 0) : 0;
-  return [e.id, KIND[e.kind], e.name, e.sprite, e.level || 0, flag, e.maxHp, isPlayer(e) ? e.cls : (e.npcId || ''), e.scale || 1, e.boss ? 1 : e.elite ? 2 : 0, e.guildName || ''];
+  return [e.id, KIND[e.kind], e.name, e.sprite, e.level || 0, flag, e.maxHp, isPlayer(e) ? e.cls : (e.npcId || ''), e.scale || 1, e.boss ? 1 : e.elite ? 2 : 0, e.guildName || '', isPlayer(e) ? titleName(e.stats.title) : ''];
 }
 function snapshot(c) {
   const p = c.player; const seen = new Set(); const list = [], metas = [];
@@ -416,11 +422,11 @@ export function onConnection(sock) {
       const ch = loadCharacter(acc); if (!ch) { sock.send(JSON.stringify({ t: 'err', msg: '캐릭터를 찾을 수 없습니다.' })); return; }
       const ban = banInfo(ch.name); if (ban) { sock.send(JSON.stringify({ t: 'err', msg: `차단된 계정입니다${ban.reason ? ' (' + ban.reason + ')' : ''}${ban.until ? ' · ' + new Date(ban.until).toLocaleString('ko-KR') + '까지' : ''}.`, relogin: true })); return; }
       const pl = { id: nextId++, kind: 'player', accountId: acc, client: c, name: ch.name, look: LOOKS[ch.look] ? ch.look : 'knight', sprite: LOOKS[ch.look] ? ch.look : 'knight', cls: CLASSES[ch.cls] ? ch.cls : 'commoner',
-        level: ch.level, exp: ch.exp, gold: ch.gold, align: ch.align, kills: ch.kills, inv: ch.inventory.filter(x => ITEMS[x.id]), equip: {}, bank: (ch.bank || []).filter(x => ITEMS[x.id]), bankGold: ch.bank_gold || 0, quests: ch.quests || {}, skill2T: 0, npcOpen: null,
+        level: ch.level, exp: ch.exp, gold: ch.gold, align: ch.align, kills: ch.kills, inv: ch.inventory.filter(x => ITEMS[x.id]), equip: {}, bank: (ch.bank || []).filter(x => ITEMS[x.id]), bankGold: ch.bank_gold || 0, quests: ch.quests || {}, stats: ch.stats || {}, skill2T: 0, npcOpen: null,
         x: SPAWN.x + (R() - .5) * 3, y: SPAWN.y + (R() - .5) * 3, speed: 4.2, dir: 0, path: null, target: null, engaged: false, cd: 0, metaVer: 1, flagT: 0, healT: 0, skillT: 0, stunT: 0, fx: {}, pick: 0, talk: null };
       for (const s of SLOTS) { const it = ch.equipment[s]; if (it && ITEMS[it.id] && ITEMS[it.id].type === s) pl.equip[s] = { id: it.id, enh: it.enh || 0 }; }
       applyStats(pl, true); ents.set(pl.id, pl); c.player = pl; online.set(acc, pl);
-      pl.admin = isAdmin(pl.name); guilds.attach(pl); sock.send(JSON.stringify({ t: 'welcome', id: pl.id, name: pl.name, admin: pl.admin })); sendInv(pl); logEvent('login', pl.name, null, (c.sock.sock.remoteAddress || ''));
+      pl.admin = isAdmin(pl.name); guilds.attach(pl); sock.send(JSON.stringify({ t: 'welcome', id: pl.id, name: pl.name, admin: pl.admin })); sendInv(pl); sendTitles(pl); logEvent('login', pl.name, null, (c.sock.sock.remoteAddress || ''));
       broadcastAll({ t: 'chat', sys: true, msg: `${pl.name}님이 레이븐무어에 들어왔습니다. (접속 ${online.size}명)` });
       const alive = [...ents.values()].filter(e => isMonster(e) && e.boss && !e.dead).map(e => e.name); if (alive.length) sys(pl, `지금 깨어 있는 보스: ${alive.join(', ')}`);
       if (online.size > 1) sys(pl, `접속 중: ${[...online.values()].filter(x => x !== pl).map(x => x.name).join(', ')}`);
@@ -437,6 +443,8 @@ export function onConnection(sock) {
       case 'pick': { const d = ents.get(+m.id); if (!d || d.kind !== 'drop') return; clearIntent(); p.pick = d.id; if (dist(p, d) > 1.2) setPath(p, d.x, d.y); break; }
       case 'talk': { const n = npcById[m.npc]; if (!n) return; clearIntent(); if (dist(p, n) <= 2.2) talkTo(p, n); else { p.talk = m.npc; setPath(p, n.x, n.y); } break; }
       case 'npcclose': p.npcOpen = null; break;
+      case 'title': setTitle(p, String(m.id || 'none')); break;
+      case 'titles': sendTitles(p); break;
       case 'quests': sendTo(p, { t: 'quests', q: QUESTS.map(q => ({ id: q.id, st: questState(p, q), prog: questProgress(p, q) })) }); break;
       case 'heal': heal(p); break;
       case 'skill': useSkill(p, m.id); break;

@@ -136,6 +136,25 @@ export const QUESTS = [
   { id: 'lich',     giver: 'magetower', title: '리치 왕',        desc: '남서쪽 늪지에 잠든 리치 왕이 깨어났습니다. 레이븐무어의 운명이 걸려 있습니다.', type: 'kill', target: 'boss_lich', n: 1, lvl: 22, reward: { gold: 4000, exp: 9000, items: { soulGem: 3 } } },
 ];
 
+// titles: unlocked by deeds, chosen in the character window, shown before the name
+export const TITLES = [
+  { id: 'none',     name: '',               desc: '칭호 없음', req: () => true },
+  { id: 'novice',   name: '풋내기',         desc: '레이븐무어에 처음 발을 들였다.', req: () => true },
+  { id: 'skilled',  name: '숙련된',         desc: '레벨 10 달성', req: (p) => p.level >= 10 },
+  { id: 'veteran',  name: '노련한',         desc: '레벨 20 달성', req: (p) => p.level >= 20 },
+  { id: 'legend',   name: '전설의',         desc: '레벨 30 달성', req: (p) => p.level >= 30 },
+  { id: 'hunter',   name: '사냥꾼',         desc: '몬스터 200마리 처치', req: (p, s) => (s.mkills || 0) >= 200 },
+  { id: 'slayer',   name: '학살자',         desc: '몬스터 1000마리 처치', req: (p, s) => (s.mkills || 0) >= 1000 },
+  { id: 'bossh',    name: '보스 사냥꾼',    desc: '보스 처치 1회', req: (p, s) => (s.bossKills || 0) >= 1 },
+  { id: 'kingh',    name: '왕을 벤',        desc: '보스 처치 10회', req: (p, s) => (s.bossKills || 0) >= 10 },
+  { id: 'outlaw',   name: '무법자',         desc: '모험가 10명 처치 (PK)', req: (p, s) => (s.pks || 0) >= 10 },
+  { id: 'guardian', name: '성벽의 수호자',  desc: '성문 습격 격퇴 3회', req: (p, s) => (s.raids || 0) >= 3 },
+  { id: 'hero',     name: '레이븐무어의 영웅', desc: '모든 본편 의뢰 완료', req: (p, s) => QUESTS.filter(q => !q.daily).every(q => p.quests && p.quests[q.id] && p.quests[q.id].st === 'done') },
+  { id: 'rich',     name: '부유한',         desc: '금화 50,000 보유 (창고 포함)', req: (p) => (p.gold + (p.bankGold || 0)) >= 50000 },
+];
+export const TITLE_BY = Object.fromEntries(TITLES.map(t => [t.id, t]));
+export function titleName(id) { const t = TITLE_BY[id]; return t ? t.name : ''; }
+
 export const ENH_RATE = [100, 95, 85, 70, 55, 40, 30, 20, 15];
 export function itemStats(it) { const base = ITEMS[it.id]; const e = it.enh || 0; if (!base) return {}; const out = { atk: base.atk || 0, def: base.def || 0, spd: base.spd || 0 }; if (base.type === 'weapon') out.atk += e * 2; else if (base.type === 'ring' || base.type === 'gloves') out.atk += e; else out.def += e; return out; }
 export function enhCost(it) { const base = ITEMS[it.id]; return Math.round((base.price || (base.craft && base.craft.gold) || 300) * .12 * ((it.enh || 0) + 1) + 40); }
