@@ -1,6 +1,6 @@
 // Authoritative game world. The server decides movement, combat, items, shops and rewards;
 // clients only send intentions (move / attack / use item / buy ...).
-import { MAP, TOWN, SPAWN, CX, CY, VIEW_RADIUS, TICK_HZ, SNAP_HZ, MONSTERS, LOOKS, buildWorld, isSafe, findPath, expNeed, dirOf, rng } from '../shared/world.js';
+import { MAP, TOWN, SPAWN, CX, CY, GATES, VIEW_RADIUS, TICK_HZ, SNAP_HZ, MONSTERS, LOOKS, buildWorld, isSafe, findPath, expNeed, dirOf, rng } from '../shared/world.js';
 import { ITEMS, SLOTS, INV_SIZE, DROPS, NPCS, CLASSES, CLASS_LEVEL, ADV, ADV_LEVEL, ADV_OF, classInfo, statsFor, itemStats, ENH_RATE, enhCost, sellPrice, itemName, BANK_SIZE, QUESTS } from '../shared/rules.js';
 import { accountForToken, loadCharacter, saveCharacter } from './db.js';
 import { createSocial } from './social.js';
@@ -142,6 +142,7 @@ function kill(b, a) {
       social.shareExp(a, m.exp * mul, gainExp); questKill(a, b.type, b.elite);
       if (social.partyOf(a)) for (const mm of social.partyOf(a).members) if (mm !== a && !mm.dead && dist(mm, a) <= 22) questKill(mm, b.type, b.elite);
       if (m.boss) broadcastAll({ t: 'chat', sys: true, msg: `👑 ${a.name}이(가) ${m.name}을(를) 쓰러뜨렸습니다!` });
+      if (b.raid && raid) { raid.part.add(a.accountId); if (social.partyOf(a)) for (const mm of social.partyOf(a).members) if (dist(mm, a) <= 22) raid.part.add(mm.accountId); raid.left--; raidCheck(); }
     }
   } else if (isPlayer(b)) {
     b.respawnAt = now() + 5000;
@@ -337,6 +338,28 @@ function effectsTick(e) {
 }
 
 // ── tick
+// ── gate raids: every 25–40 minutes (when someone is online) a skeleton warband appears outside a random gate.
+let raid = null, nextRaid = now() + 20 * 60000;
+const DIRN = { S: '남', E: '동', N: '북', W: '서' };
+export function startRaid(force) {
+  if (raid) return false; const players = [...ents.values()].filter(isPlayer); if (!players.length && !force) return false;
+  const lv = Math.max(1, Math.round(players.reduce((s, p) => s + p.level, 0) / Math.max(1, players.length)));
+  const g = GATES[Math.floor(R() * GATES.length)]; const out = { S: [0, 1], E: [1, 0], N: [0, -1], W: [-1, 0] }[g.dir];
+  const mix = lv < 5 ? ['skel_minion', 'skel_minion', 'skel_rogue'] : lv < 10 ? ['skel_minion', 'skel_rogue', 'skel_rogue', 'skel_warrior'] : lv < 16 ? ['skel_rogue', 'skel_warrior', 'skel_warrior', 'skel_mage'] : ['skel_warrior', 'skel_mage', 'skel_mage'];
+  const mons = []; const n = 10;
+  for (let i = 0; i < n; i++) { const d = 4 + Math.floor(R() * 7); const side = (R() - .5) * 10; let x = g.x + .5 + out[0] * d + (out[0] ? 0 : side), y = g.y + .5 + out[1] * d + (out[1] ? 0 : side); x = Math.max(2, Math.min(MAP - 3, x)); y = Math.max(2, Math.min(MAP - 3, y)); if (W.monsterBlock[Math.floor(y) * MAP + Math.floor(x)]) continue; const e = spawnMonster(mix[Math.floor(R() * mix.length)], x, y, i === n - 1); e.temp = true; e.raid = true; e.wanderT = now() + 600000; mons.push(e); }
+  raid = { gate: g, mons, left: mons.length, part: new Set(), until: now() + 10 * 60000 };
+  broadcastAll({ t: 'chat', notice: true, msg: `⚔ 해골 무리가 ${DIRN[g.dir]}문 밖에 나타났습니다! 10분 안에 ${mons.length}마리를 모두 물리치면 참가자 전원에게 보상이 주어집니다.` }); logEvent('raid', 'server', g.dir, `${mons.length}마리, Lv${lv}`);
+  return true;
+}
+function raidCheck() {
+  if (!raid) return;
+  if (raid.left <= 0) { const bonusG = 150 + 25 * Math.max(...raid.mons.map(m => m.level)), bonusX = 100 + 40 * Math.max(...raid.mons.map(m => m.level)); for (const acc of raid.part) { const p = online.get(acc); if (!p) continue; p.gold += bonusG; gainExp(p, bonusX); invChanged(p); sys(p, `습격 격퇴 보상: 금화 ${bonusG} · 경험치 ${bonusX}`); } broadcastAll({ t: 'chat', notice: true, msg: `🛡 ${DIRN[raid.gate.dir]}문의 습격을 물리쳤습니다! (참가 ${raid.part.size}명)` }); raid = null; nextRaid = now() + (25 + R() * 15) * 60000; return; }
+  if (now() > raid.until) { for (const m of raid.mons) if (!m.dead) { m.dead = true; m.hp = 0; broadcastNear(m.x, m.y, { t: 'ev', k: 'die', id: m.id }); setTimeout(() => ents.delete(m.id), 2000); } broadcastAll({ t: 'chat', sys: true, msg: `해골 무리가 ${DIRN[raid.gate.dir]}문에서 물러갔습니다.` }); raid = null; nextRaid = now() + (25 + R() * 15) * 60000; }
+}
+setInterval(() => { if (raid) raidCheck(); else if (now() >= nextRaid) { if (!startRaid()) nextRaid = now() + 5 * 60000; } }, 5000).unref();
+export const raidInfo = () => raid ? { gate: raid.gate.dir, left: raid.left, until: raid.until } : null;
+
 let lastSnap = 0, lastSave = 0;
 setInterval(() => { for (const c of [...clients]) { if (!c.player && now() - c.lastMsg > 20000) { c.sock.close(); continue; } if (now() - c.sock.lastPong > 45000 && now() - c.lastMsg > 45000) { c.sock.close(); continue; } c.sock.ping(); } }, 15000).unref();
 setInterval(() => {
@@ -367,7 +390,7 @@ function snapshot(c) {
   }
   const gone = []; for (const id of c.known.keys()) if (!seen.has(id)) { gone.push(id); c.known.delete(id); }
   const cls = classInfo(p.cls);
-  c.sock.send(JSON.stringify({ t: 'snap', s: now(), e: list, m: metas, g: gone, day: +dayPhase().toFixed(4), qm: questMarks(p),
+  c.sock.send(JSON.stringify({ t: 'snap', s: now(), e: list, m: metas, g: gone, day: +dayPhase().toFixed(4), qm: questMarks(p), raid: raid ? [raid.gate.dir, raid.left, Math.max(0, Math.round((raid.until - now()) / 1000))] : 0,
     me: [Math.ceil(p.hp), p.maxHp, Math.floor(p.mp), p.maxMp, p.level, p.exp, expNeed(p.level), p.gold, p.atk, p.def, p.align, p.cls, Math.max(0, p.healT - now()), Math.max(0, p.skillT - now()), cls.skill ? cls.skill.cd : 0, p.atkSpeed, p.range, p.kills, Math.max(0, (p.skill2T || 0) - now()), cls.skill2 ? cls.skill2.cd : 0, p.fx.bless > now() ? 1 : 0, p.partyId || 0] }));
 }
 
@@ -427,7 +450,7 @@ export function onConnection(sock) {
       case 'chat': {
         const text = String(m.msg || '').slice(0, 160).trim(); if (!text || now() - c.chatT < 500) return; c.chatT = now();
         if (text[0] === '/') {
-          if (adminCommand(p, text, { sys, broadcastAll, findPlayerByName, ents, addItem, invChanged, applyStats, bump, MONSTERS, spawnMonster })) return;
+          if (adminCommand(p, text, { sys, broadcastAll, findPlayerByName, ents, addItem, invChanged, applyStats, bump, MONSTERS, spawnMonster, startRaid })) return;
           const [cmd, ...args] = text.split(/\s+/); const rest = args.join(' ');
           if (cmd === '/귓' || cmd === '/w') { if (args.length < 2) return sys(p, '사용법: /귓 이름 내용'); social.whisper(p, args[0], args.slice(1).join(' ')); }
           else if (cmd === '/파티' || cmd === '/p') { if (args.length < 1) return sys(p, '사용법: /파티 초대 이름 · /파티 수락 · /파티 나가기 · /파티 추방 이름 · /파티 내용(파티 채팅)'); const sub = args[0]; if (sub === '초대') social.invite(p, args[1]); else if (sub === '수락') social.accept(p); else if (sub === '나가기' || sub === '탈퇴') social.leaveParty(p); else if (sub === '추방') social.kick(p, args[1] || ''); else social.partyChat(p, rest); }

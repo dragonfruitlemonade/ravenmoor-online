@@ -34,12 +34,12 @@ function parseDur(s) { const m = /^(\d+)(분|시간|일)$/.exec(s || ''); return
 export function adminCommand(p, text, ctx) {
   const { sys, broadcastAll, findPlayerByName, ents, addItem, invChanged, applyStats, bump, MONSTERS, spawnMonster } = ctx;
   const [cmd, ...args] = text.trim().split(/\s+/); const a = args.join(' ');
-  const ADMIN_CMDS = ['/공지', '/킥', '/차단', '/차단해제', '/텔레포트', '/소환', '/아이템', '/금화', '/레벨', '/접속자', '/몬스터', '/도움'];
+  const ADMIN_CMDS = ['/공지', '/킥', '/차단', '/차단해제', '/텔레포트', '/소환', '/아이템', '/금화', '/레벨', '/접속자', '/몬스터', '/습격', '/도움'];
   if (!ADMIN_CMDS.includes(cmd)) return false;
   if (!isAdmin(p.name)) { sys(p, '관리자만 쓸 수 있는 명령입니다.'); return true; }
   const target = () => { const t = findPlayerByName(args[0] || ''); if (!t) sys(p, '접속 중인 그런 이름이 없습니다.'); return t; };
   switch (cmd) {
-    case '/도움': sys(p, '관리자: /공지 글 · /킥 이름 · /차단 이름 [10분|2시간|3일] [사유] · /차단해제 이름 · /텔레포트 이름|x y · /소환 이름 · /아이템 아이템ID [수] · /금화 수 · /레벨 수 · /접속자 · /몬스터 종류'); break;
+    case '/도움': sys(p, '관리자: /공지 글 · /킥 이름 · /차단 이름 [10분|2시간|3일] [사유] · /차단해제 이름 · /텔레포트 이름|x y · /소환 이름 · /아이템 아이템ID [수] · /금화 수 · /레벨 수 · /접속자 · /몬스터 종류 · /습격'); break;
     case '/공지': if (!a) return true; broadcastAll({ t: 'chat', notice: true, msg: a }); logEvent('notice', p.name, null, a); break;
     case '/킥': { const t = target(); if (!t) break; sys(t, '관리자가 연결을 끊었습니다.'); t.client.sock.close(); logEvent('kick', p.name, t.name); sys(p, `${t.name} 내보냄`); break; }
     case '/차단': { const name = args[0]; if (!name) break; const dur = parseDur(args[1]); const reason = (dur ? args.slice(2) : args.slice(1)).join(' ') || null; q.ban.run(name, reason, p.name, dur ? Date.now() + dur : null, Date.now()); const t = findPlayerByName(name); if (t) { sys(t, `차단되었습니다${reason ? ': ' + reason : ''}.`); t.client.sock.close(); } logEvent('ban', p.name, name, { dur, reason }); sys(p, `${name} 차단 (${dur ? args[1] : '영구'})`); break; }
@@ -50,6 +50,7 @@ export function adminCommand(p, text, ctx) {
     case '/금화': { const n = Math.floor(+args[0] || 0); p.gold = Math.max(0, p.gold + n); invChanged(p); logEvent('gold', p.name, p.name, n); break; }
     case '/레벨': { const n = Math.max(1, Math.min(60, +args[0] || 1)); p.level = n; p.exp = 0; applyStats(p, true); bump(p); p.saveDirty = true; sys(p, `레벨 ${n}`); break; }
     case '/접속자': { const list = [...ents.values()].filter(e => e.kind === 'player').map(e => `${e.name}(Lv${e.level}${e.align < 0 ? ',카오틱' : ''})`); sys(p, `접속 ${list.length}명: ${list.join(', ')}`); break; }
+    case '/습격': { sys(p, ctx.startRaid(true) ? '습격을 시작했습니다.' : '이미 습격이 진행 중입니다.'); break; }
     case '/몬스터': { const type = args[0]; if (!MONSTERS[type]) { sys(p, '종류: ' + Object.keys(MONSTERS).join(', ')); break; } const m = spawnMonster(type, p.x + 2, p.y); m.temp = true; sys(p, `${m.name} 소환`); break; }
   }
   return true;

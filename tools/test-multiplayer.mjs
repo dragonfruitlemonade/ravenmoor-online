@@ -152,6 +152,10 @@ A.send({ t: 'use', i: A.inv.inv.findIndex(x => x.id === 'scroll'), id: 'scroll' 
 check(A.npc && A.npc.quests && A.npc.quests.some(q => q.id === 'd_rogue' && q.st === 'avail'), 'daily bounty offered by the south guard');
 A.send({ t: 'qaccept', npc: 'guard_s1', q: 'd_rogue' }); await sleep(400); check(A.npc.quests.find(q => q.id === 'd_rogue')?.st === 'active', 'daily bounty accepted');
 B = bot(rb.token); await B.ready; await sleep(500);
+const monsBefore = (await (await fetch(`http://127.0.0.1:${PORT}/health`)).json()).monsters;
+A.send({ t: 'chat', msg: '/습격' }); await sleep(600); const monsAfter = (await (await fetch(`http://127.0.0.1:${PORT}/health`)).json()).monsters;
+check(B.chat.some(t => t.includes('해골 무리가')) && monsAfter >= monsBefore + 8, `gate raid spawns a warband and notifies everyone (${monsBefore} -> ${monsAfter})`);
+A.send({ t: 'chat', msg: '/습격' }); await sleep(600); check(A.said('이미 습격'), 'only one raid at a time');
 const health = await (await fetch(`http://127.0.0.1:${PORT}/health`)).json();
 check(health.players === 2 && health.monsters > 90, `health ${JSON.stringify(health)}`);
 check((await fetch(`http://127.0.0.1:${PORT}/`)).ok, 'client page is served');
