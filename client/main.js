@@ -1,5 +1,5 @@
 // Ravenmoor Online client: renders the shared map and baked 3D sprites, sends intentions to the server.
-import { MAP, TILE_W as TW, TILE_H as TH, G, TOWN, BUILDINGS, LOOKS, buildWorld, isSafe, noise } from '/shared/world.js';
+import { MAP, TILE_W as TW, TILE_H as TH, G, TOWN, CX, CY, GATES, BUILDINGS, LOOKS, buildWorld, isSafe, noise } from '/shared/world.js';
 import { ITEMS, CLASSES, classInfo } from '/shared/rules.js';
 import { createUI, iconSrc } from '/client/ui.js';
 import { initAudio, toggleMute, isMuted, sfx, sfxAt, setAmbience } from '/client/audio.js';
@@ -157,7 +157,7 @@ function onMsg(m) {
   if (m.t === 'npc') { ui.openNpc(m); return; }
   if (m.t === 'npcclose') { ui.closeNpc(); return; }
   if (m.t === 'quests') { ui.setQuests(m.q); return; }
-  if (m.t === 'welcome') { myId = m.id; $('join').hidden = true; $('hud').hidden = false; $('pname').textContent = m.name; addLog(`${m.name}님, 레이븐무어에 오신 것을 환영합니다. 성문은 남쪽과 동쪽에 있습니다. 상인과 스승은 이름을 눌러 말을 걸 수 있습니다.`, 'sys'); return; }
+  if (m.t === 'welcome') { myId = m.id; $('join').hidden = true; $('hud').hidden = false; $('pname').textContent = m.name; addLog(`${m.name}님, 레이븐무어에 오신 것을 환영합니다. 성문은 동서남북 네 곳에 있습니다. 상인·스승·마을 사람은 이름을 눌러 말을 걸 수 있습니다.`, 'sys'); return; }
   if (m.t === 'snap') {
     for (const [id, kind, name, sprite, level, flag, maxHp, extra, scale, boss] of m.m) { const e = ents.get(id) || { id, atkT: -1e9, hitT: -1e9, deadT: 0, rx: null }; Object.assign(e, { kind, name, sprite, level, flag, maxHp, extra, scale: scale || 1, boss: !!boss }); ents.set(id, e); }
     dayPhase = m.day || 0; questMarks = m.qm || {};
@@ -288,7 +288,7 @@ function hud() {
   $('online').textContent = `주변 ${online}명`; $('pcls').textContent = classInfo(meStats[11]).name; const sk = classInfo(meStats[11]).skill; $('skName').textContent = sk ? sk.name : '기술'; $('cdH').style.height = (100 * Math.min(1, meStats[12] / 5000)) + '%'; $('cdS').style.height = (sk ? 100 * Math.min(1, meStats[13] / meStats[14]) : 100) + '%';
   const sk2 = classInfo(meStats[11]).skill2; $('sk2Name').textContent = sk2 ? sk2.name : '기술2'; $('cdD').style.height = (sk2 ? 100 * Math.min(1, meStats[18] / meStats[19]) : 100) + '%';
   const bb = $('bossbar'); const tgb = ents.get(targetId); if (tgb && tgb.boss && tgb.st !== 4) { bb.hidden = false; $('bossname').textContent = `${tgb.name} · Lv ${tgb.level}`; $('bosshp').style.width = (100 * tgb.hp / tgb.maxHp) + '%'; $('bosshpt').textContent = `${tgb.hp} / ${tgb.maxHp}`; } else bb.hidden = true;
-  const hr = Math.floor((dayPhase * 24 + 6) % 24); if (me) setAmbience({ fountain: Math.max(0, 1 - Math.hypot(me.x - 64, me.y - 64.5) / 10), night: Math.max(0, Math.sin((dayPhase - .25) * Math.PI * 2)), hour: hr, inTown: isSafe(me.x, me.y) }); $('clock').textContent = `${String(hr).padStart(2, '0')}시 ${nightLabel(dayPhase)}`;
+  const hr = Math.floor((dayPhase * 24 + 6) % 24); if (me) setAmbience({ fountain: Math.max(0, 1 - Math.hypot(me.x - CX, me.y - CY - .5) / 10), night: Math.max(0, Math.sin((dayPhase - .25) * Math.PI * 2)), hour: hr, inTown: isSafe(me.x, me.y) }); $('clock').textContent = `${String(hr).padStart(2, '0')}시 ${nightLabel(dayPhase)}`;
   const cnt = id => ui.state.inv.filter(x => x.id === id).reduce((a, x) => a + x.n, 0); $('n1').textContent = cnt('hpPotion'); $('n2').textContent = cnt('mpPotion'); $('n3').textContent = cnt('scroll');
   const tg = ents.get(targetId); if (tg && tg.st !== 4) { $('target').hidden = false; $('tname').textContent = tg.name; $('tlv').textContent = `Lv ${tg.level}`; $('thpb').style.width = (100 * tg.hp / tg.maxHp) + '%'; } else $('target').hidden = true;
   $('dead').hidden = !(me && me.st === 4);
@@ -330,7 +330,7 @@ function frame(t) {
     for (let i = rings.length - 1; i >= 0; i--) { const r = rings[i]; const p = (t - r.t0) / r.life; if (p >= 1) { rings.splice(i, 1); continue; } const [sx, sy] = toS(r.x, r.y); const rr = r.r * (.3 + p * .7); if (r.fill) { const gr = ctx.createRadialGradient(sx, sy, 0, sx, sy, rr); gr.addColorStop(0, `rgba(${r.col},${.55 * (1 - p)})`); gr.addColorStop(1, `rgba(${r.col},0)`); ctx.fillStyle = gr; ctx.beginPath(); ctx.ellipse(sx, sy, rr, rr * .5, 0, 0, 7); ctx.fill(); } ctx.strokeStyle = `rgba(${r.col},${1 - p})`; ctx.lineWidth = 2; ctx.beginPath(); ctx.ellipse(sx, sy - 2, rr, rr * .5, 0, 0, 7); ctx.stroke(); }
     // labels, hp bars, chat bubbles, floating numbers (screen-aligned)
     ctx.textAlign = 'center';
-    for (const o of statics) if (o.name && o.building !== 'well') { const [sx, sy] = toS(o.x, o.y); if (Math.abs(sx - cam.x) > hw || Math.abs(sy - cam.y) > hh) continue; ctx.font = "500 11px 'Noto Sans KR'"; const tw = ctx.measureText(o.name).width + 14; ctx.fillStyle = 'rgba(16,14,12,.78)'; ctx.fillRect(sx - tw / 2, sy + 8, tw, 18); ctx.fillStyle = '#e8d3a4'; ctx.fillText(o.name, sx, sy + 21); }
+    for (const o of statics) if (o.name && o.building !== 'well' && !o.building.startsWith('home')) { const [sx, sy] = toS(o.x, o.y); if (Math.abs(sx - cam.x) > hw || Math.abs(sy - cam.y) > hh) continue; ctx.font = "500 11px 'Noto Sans KR'"; const tw = ctx.measureText(o.name).width + 14; ctx.fillStyle = 'rgba(16,14,12,.78)'; ctx.fillRect(sx - tw / 2, sy + 8, tw, 18); ctx.fillStyle = '#e8d3a4'; ctx.fillText(o.name, sx, sy + 21); }
     for (const e of ents.values()) {
       if (e.rx === null || e.st === 4) continue; const [sx, sy] = toS(e.rx, e.ry);
       if (e.kind === 3) { if (e.id !== hoverId && Math.hypot(e.x - (me ? me.x : 0), e.y - (me ? me.y : 0)) > 5) continue; ctx.font = "500 10.5px 'Noto Sans KR'"; ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,.85)'; ctx.strokeText(e.name, sx, sy - 26); ctx.fillStyle = e.sprite === 'gold' ? '#ffd86b' : '#e8e0cf'; ctx.fillText(e.name, sx, sy - 26); continue; }
@@ -346,7 +346,7 @@ function frame(t) {
     const night = Math.max(0, Math.sin((dayPhase - .25) * Math.PI * 2)); const nightAmt = night * night * .78;
     if (nightAmt > .02) { ctx.setTransform(DPR, 0, 0, DPR, 0, 0); ctx.fillStyle = `rgba(18,22,52,${nightAmt})`; ctx.globalCompositeOperation = 'multiply'; ctx.fillRect(0, 0, VW, VH); ctx.globalCompositeOperation = 'source-over';
       ctx.globalCompositeOperation = 'lighter'; const glow = (wx, wy, r, a) => { const [gx, gy] = toS(wx, wy); const x = (gx - cam.x) * zoom + VW / 2, y = (gy - 20 - cam.y) * zoom + VH / 2; const gr = ctx.createRadialGradient(x, y, 0, x, y, r * zoom); gr.addColorStop(0, `rgba(255,190,110,${a * nightAmt})`); gr.addColorStop(1, 'rgba(255,190,110,0)'); ctx.fillStyle = gr; ctx.fillRect(x - r * zoom, y - r * zoom, r * zoom * 2, r * zoom * 2); };
-      if (me && me.rx !== null) glow(me.rx, me.ry, 170, .55); for (const e of ents.values()) if (e.kind === 4 && e.rx !== null) glow(e.rx, e.ry, 110, .4); glow(64.5, TOWN.y1 + .5, 140, .5); glow(TOWN.x1 + .5, 64.5, 140, .5); glow(64, 64.5, 120, .35);
+      if (me && me.rx !== null) glow(me.rx, me.ry, 170, .55); for (const e of ents.values()) if (e.kind === 4 && e.rx !== null) glow(e.rx, e.ry, 110, .4); for (const g of GATES) glow(g.x + .5, g.y + .5, 140, .5); glow(CX, CY + .5, 120, .35);
       ctx.globalCompositeOperation = 'source-over'; }
     // vignette
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0); const vg = ctx.createRadialGradient(VW / 2, VH / 2, Math.min(VW, VH) * .45, VW / 2, VH / 2, Math.max(VW, VH) * .75); vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,0,.45)'); ctx.fillStyle = vg; ctx.fillRect(0, 0, VW, VH);

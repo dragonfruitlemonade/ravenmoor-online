@@ -38,7 +38,7 @@ check(A.inv && A.inv.inv.some(x => x.id === 'hpPotion' && x.n === 5) && A.inv.eq
 const npcs = [...A.meta.values()].filter(m => m[1] === 4); check(npcs.length >= 6, `NPCs present (${npcs.length})`);
 
 // shop: walk to the merchant, buy and equip armour
-A.send({ t: 'talk', npc: 'market' }); await sleep(3500);
+A.send({ t: 'talk', npc: 'market' }); await sleep(6000);
 check(A.npc && A.npc.id === 'market' && A.npc.shop.includes('leatherArmor'), 'talking to the merchant opens her shop');
 const g0 = A.inv.gold; A.send({ t: 'buy', npc: 'market', item: 'leatherArmor' }); await sleep(300);
 check(A.inv.gold === g0 - 150 && A.inv.inv.some(x => x.id === 'leatherArmor'), 'buy leather armour for 150 G');
@@ -48,13 +48,13 @@ A.send({ t: 'buy', npc: 'smith', item: 'longSword' }); await sleep(250); check(A
 
 // safe zone and PK
 A.send({ t: 'attack', id: B.id }); await sleep(300); check(A.said('마을 안에서는'), 'attacking inside town is refused');
-A.send({ t: 'move', x: 64.5, y: 82.5 }); B.send({ t: 'move', x: 65.5, y: 82.5 }); await sleep(5200);
-const pa = A.pos(); check(pa && pa[1] > 78, `walked out through the south gate (y=${pa && pa[1]})`);
+A.send({ t: 'move', x: 88.5, y: 118.5 }); B.send({ t: 'move', x: 89.5, y: 118.5 }); await sleep(8000);
+const pa = A.pos(); check(pa && pa[1] > 114, `walked out through the south gate (y=${pa && pa[1]})`);
 const hp0 = B.me[0]; A.send({ t: 'attack', id: B.id }); await sleep(2500);
 check(B.me[0] < hp0, `PK outside walls deals damage (B hp ${hp0} -> ${B.me[0]})`);
 check(A.meta.get(A.id)?.[5] >= 1, 'attacker gets a purple/red name');
-A.send({ t: 'stop' }); B.send({ t: 'move', x: 64.5, y: 66.5 }); await sleep(5500);
-A.send({ t: 'move', x: 64.5, y: 70.5 }); await sleep(4500); await sleep(6000); A.send({ t: 'move', x: 64.5, y: 82.5 }); await sleep(4500);
+A.send({ t: 'stop' }); B.send({ t: 'move', x: 88.5, y: 100.5 }); await sleep(7000);
+A.send({ t: 'move', x: 88.5, y: 104.5 }); await sleep(6000); await sleep(6000); A.send({ t: 'move', x: 88.5, y: 120.5 }); await sleep(7000);
 
 // hunt: kill a monster, loot appears on the ground with owner priority
 let killed = false; for (let i = 0; i < 6 && !killed; i++) { const mon = [...A.ents.values()].filter(e => A.meta.get(e[0])?.[1] === 2 && A.meta.get(e[0])?.[3] === 'skel_minion' && e[4] !== 4).sort((p, q) => Math.hypot(p[1] - A.pos()[0], p[2] - A.pos()[1]) - Math.hypot(q[1] - A.pos()[0], q[2] - A.pos()[1]))[0]; if (!mon) break; A.send({ t: 'attack', id: mon[0] }); for (let k = 0; k < 20 && !killed; k++) { await sleep(500); if (A.evs.some(e => e.k === 'die' && e.id === mon[0])) killed = true; if (A.me[0] < A.me[1] * .35) { const hp = A.inv.inv.findIndex(x => x.id === 'hpPotion'); if (hp >= 0) A.send({ t: 'use', i: hp, id: 'hpPotion' }); } } }
@@ -72,23 +72,24 @@ check(row.gold === A.inv.gold && JSON.parse(row.equipment).armor?.id === 'leathe
 db.prepare("UPDATE characters SET level=10 WHERE account_id=(SELECT id FROM accounts WHERE name='기사앨런')").run(); db.close();
 A = bot(r5.token); await A.ready; await sleep(700);
 check(A.me[4] === 10, 'reloaded at level 10');
-A.send({ t: 'talk', npc: 'knights' }); await sleep(3500); const hp10 = A.me[1];
+A.send({ t: 'talk', npc: 'knights' }); await sleep(7000); const hp10 = A.me[1];
 A.send({ t: 'job', npc: 'knights' }); await sleep(300);
 check(A.me[11] === 'knight' && A.me[1] > hp10, `class change to knight (maxHp ${hp10} -> ${A.me[1]})`);
 A.send({ t: 'skill' }); await sleep(200); check(A.said('성내에서는'), 'skills are blocked inside town');
 
 
 // quests: accept at the guard, kills count, turn in
-A.send({ t: 'talk', npc: 'guard_s1' }); await sleep(3500);
+A.send({ t: 'talk', npc: 'guard_s1' }); await sleep(7000);
 check(A.npc && A.npc.quests.some(q => q.id === 'minions' && q.st === 'avail'), 'guard offers the skeleton quest');
 A.send({ t: 'qaccept', npc: 'guard_s1', q: 'minions' }); await sleep(300); check(A.said('의뢰 수락'), 'quest accepted');
-A.send({ t: 'move', x: 64.5, y: 84.5 }); await sleep(5000);
-let kills = 0; for (let i = 0; i < 12 && kills < 8; i++) { const mon = [...A.ents.values()].filter(e => A.meta.get(e[0])?.[3] === 'skel_minion' && e[4] !== 4).sort((p, q) => Math.hypot(p[1] - A.pos()[0], p[2] - A.pos()[1]) - Math.hypot(q[1] - A.pos()[0], q[2] - A.pos()[1]))[0]; if (!mon) { A.send({ t: 'move', x: 64.5, y: 90.5 }); await sleep(3000); continue; } A.send({ t: 'attack', id: mon[0] }); for (let k = 0; k < 16; k++) { await sleep(400); if (A.evs.some(e => e.k === 'die' && e.id === mon[0])) { kills++; break; } } }
-check(A.said('성문 밖의 해골들: 8/8') || kills >= 8, `kill counter reaches 8 (${kills})`);
-A.send({ t: 'talk', npc: 'guard_s1' }); await sleep(7000); const gq = A.inv.gold; A.send({ t: 'qdone', npc: 'guard_s1', q: 'minions' }); await sleep(400);
+A.send({ t: 'move', x: 88.5, y: 120.5 }); await sleep(7000);
+let kills = 0; for (let i = 0; i < 24 && !A.said('성문 밖의 해골들: 8/8'); i++) { const mon = [...A.ents.values()].filter(e => A.meta.get(e[0])?.[3] === 'skel_minion' && e[4] !== 4).sort((p, q) => Math.hypot(p[1] - A.pos()[0], p[2] - A.pos()[1]) - Math.hypot(q[1] - A.pos()[0], q[2] - A.pos()[1]))[0]; if (!mon) { A.send({ t: 'move', x: 88.5, y: 126.5 }); await sleep(4000); continue; } A.send({ t: 'attack', id: mon[0] }); for (let k = 0; k < 16; k++) { await sleep(400); if (A.evs.some(e => e.k === 'die' && e.id === mon[0])) { kills++; break; } } }
+check(A.said('성문 밖의 해골들: 8/8'), `kill counter reaches 8 (${kills} kills seen)`);
+{ const sc = A.inv.inv.findIndex(x => x.id === 'scroll'); A.send({ t: 'use', i: sc, id: 'scroll' }); await sleep(600); }
+A.send({ t: 'talk', npc: 'guard_s1' }); for (let i = 0; i < 25; i++) { await sleep(1000); if (A.npc && A.npc.id === 'guard_s1' && A.npc.quests.some(q => q.id === 'minions' && q.prog >= 8)) break; } const gq = A.inv.gold; A.send({ t: 'qdone', npc: 'guard_s1', q: 'minions' }); await sleep(400);
 check(A.inv.gold === gq + 120 && A.said('의뢰 완료'), 'quest turned in: +120 G');
 // bank
-A.send({ t: 'talk', npc: 'bank' }); await sleep(4000); check(A.npc && A.npc.bank, 'bank window opens');
+A.send({ t: 'talk', npc: 'bank' }); await sleep(9000); check(A.npc && A.npc.bank, 'bank window opens');
 const potIdx = A.inv.inv.findIndex(x => x.id === 'hpPotion'); const potN = A.inv.inv[potIdx]?.n; A.send({ t: 'bankIn', npc: 'bank', i: potIdx, id: 'hpPotion' }); await sleep(300);
 check(A.npc.bankItems.some(x => x.id === 'hpPotion' && x.n === potN) && !A.inv.inv.some(x => x.id === 'hpPotion'), 'deposit potions into the bank');
 A.send({ t: 'bankGold', npc: 'bank', v: 100 }); await sleep(300); check(A.npc.bankGold === 100, 'deposit 100 gold');
@@ -97,12 +98,12 @@ A.send({ t: 'bankOut', npc: 'bank', i: 0, id: A.npc.bankItems[0].id }); await sl
 A.ws.close(); await sleep(400);
 { const db2 = new DatabaseSync(DATA + '/ravenmoor.db'); const row2 = db2.prepare("SELECT bank_gold, quests FROM characters c JOIN accounts a ON a.id=c.account_id WHERE a.name='기사앨런'").get(); check(row2.bank_gold === 100 && JSON.parse(row2.quests).minions?.st === 'done', 'bank gold and quest state persisted'); db2.prepare("UPDATE characters SET level=20 WHERE account_id=(SELECT id FROM accounts WHERE name='기사앨런')").run(); db2.close(); }
 A = bot(r5.token); await A.ready; await sleep(700);
-A.send({ t: 'talk', npc: 'knights' }); await sleep(4500); A.send({ t: 'advance', npc: 'knights' }); await sleep(300);
+A.send({ t: 'talk', npc: 'knights' }); await sleep(7000); A.send({ t: 'advance', npc: 'knights' }); await sleep(300);
 check(A.me[11] === 'paladin', 'advanced to paladin at level 20');
 // boss: walk to grey fang, verify boss meta and special attack events
-A.send({ t: 'move', x: 64.5, y: 82.5 }); await sleep(5000);
+A.send({ t: 'move', x: 88.5, y: 118.5 }); await sleep(8000);
 let hpP = A.inv.inv.findIndex(x => x.id === 'hpPotion');
-A.send({ t: 'move', x: 83.5, y: 91.5 }); for (let i = 0; i < 14; i++) { await sleep(1000); if (Math.hypot(A.pos()[0] - 83.5, A.pos()[1] - 91.5) < 3) break; }
+A.send({ t: 'move', x: 119.5, y: 135.5 }); for (let i = 0; i < 20; i++) { await sleep(1000); if (Math.hypot(A.pos()[0] - 119.5, A.pos()[1] - 135.5) < 3) break; }
 const boss = [...A.meta.values()].find(m => m[9] === 1 && m[3] === 'skel_rogue');
 check(!!boss, 'boss 회색 송곳니 is visible with boss flag and scale ' + (boss && boss[8]));
 if (boss) { A.send({ t: 'attack', id: boss[0] }); for (let k = 0; k < 30; k++) { await sleep(500); if (A.me[0] < A.me[1] * .4) { hpP = A.inv.inv.findIndex(x => x.id === 'hpPotion'); if (hpP >= 0) A.send({ t: 'use', i: hpP, id: 'hpPotion' }); } if (A.evs.some(e => e.k === 'fx' && (e.fx === 'roar'))) break; } }

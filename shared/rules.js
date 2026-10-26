@@ -55,17 +55,27 @@ export const DROPS = {
 
 // NPCs: where they stand, what they offer. Positions are tiles in front of their building doors.
 export const NPCS = [
-  { id: 'smith',   name: '대장장이 로릭',   sprite: 'barbarian', x: 58.5, y: 59.5, shop: ['dagger', 'shortSword', 'mace', 'longSword', 'staff', 'battleAxe', 'woodShield', 'ironShield'], craft: ['boneBlade', 'boneShield', 'soulStaff', 'cursedAxe'], enhance: true },
-  { id: 'market',  name: '상인 베라',       sprite: 'rogue',     x: 70.5, y: 66.5, shop: ['leatherArmor', 'chainMail', 'plateArmor', 'ironHelm', 'leatherBoots', 'leatherGloves', 'silverRing', 'hpPotion', 'mpPotion', 'scroll'] },
-  { id: 'inn',     name: '여관 주인 올가',  sprite: 'mage',      x: 70.5, y: 59.5, rest: 20, master: 'rogue' },
-  { id: 'chapel',  name: '사제 안셀',       sprite: 'mage',      x: 57.5, y: 66.5, master: 'cleric', atone: true },
-  { id: 'knights', name: '기사단장 가웨인', sprite: 'knight',    x: 59.5, y: 71.5, master: 'knight' },
-  { id: 'magetower', name: '대마법사 이졸데', sprite: 'mage',    x: 68.5, y: 71.5, master: 'mage' },
-  { id: 'bank',    name: '은행원 마르타',   sprite: 'rogue',     x: 61.5, y: 66.5, bank: true },
-  { id: 'guard_s1', name: '성문 경비병',    sprite: 'knight',    x: 62.5, y: 75.5, guard: true },
-  { id: 'guard_s2', name: '성문 경비병',    sprite: 'knight',    x: 66.5, y: 75.5, guard: true },
-  { id: 'guard_e1', name: '성문 경비병',    sprite: 'knight',    x: 75.5, y: 62.5, guard: true },
-  { id: 'guard_e2', name: '성문 경비병',    sprite: 'knight',    x: 75.5, y: 66.5, guard: true },
+  { id: 'smith',   name: '대장장이 로릭',   sprite: 'barbarian', x: 74.5, y: 77.5, shop: ['dagger', 'shortSword', 'mace', 'longSword', 'staff', 'battleAxe', 'woodShield', 'ironShield'], craft: ['boneBlade', 'boneShield', 'soulStaff', 'cursedAxe'], enhance: true },
+  { id: 'market',  name: '상인 베라',       sprite: 'rogue',     x: 99.5, y: 86.5, shop: ['leatherArmor', 'chainMail', 'plateArmor', 'ironHelm', 'leatherBoots', 'leatherGloves', 'silverRing', 'hpPotion', 'mpPotion', 'scroll'] },
+  { id: 'inn',     name: '여관 주인 올가',  sprite: 'mage',      x: 102.5, y: 77.5, rest: 20, master: 'rogue' },
+  { id: 'chapel',  name: '사제 안셀',       sprite: 'mage',      x: 102.5, y: 102.5, master: 'cleric', atone: true },
+  { id: 'knights', name: '기사단장 가웨인', sprite: 'knight',    x: 76.5, y: 100.5, master: 'knight' },
+  { id: 'magetower', name: '대마법사 이졸데', sprite: 'mage',    x: 100.5, y: 92.5, master: 'mage' },
+  { id: 'bank',    name: '은행원 마르타',   sprite: 'rogue',     x: 80.5, y: 82.5, bank: true },
+  { id: 'guard_s1', name: '성문 경비병',    sprite: 'knight',    x: 86.5, y: 111.5, guard: true },
+  { id: 'guard_s2', name: '성문 경비병',    sprite: 'knight',    x: 90.5, y: 111.5, guard: true },
+  { id: 'guard_e1', name: '성문 경비병',    sprite: 'knight',    x: 111.5, y: 86.5, guard: true },
+  { id: 'guard_e2', name: '성문 경비병',    sprite: 'knight',    x: 111.5, y: 90.5, guard: true },
+  { id: 'guard_n1', name: '성문 경비병',    sprite: 'knight',    x: 86.5, y: 65.5, guard: true },
+  { id: 'guard_w1', name: '성문 경비병',    sprite: 'knight',    x: 65.5, y: 86.5, guard: true },
+  // villagers: wander in an area and say a line when clicked
+  { id: 'v_yan',   name: '농부 얀',   sprite: 'barbarian', x: 72.5, y: 70.5, villager: true, area: [66, 66, 10, 10], lines: ['올해 밀 수확이 괜찮아서 다행이에요.', '성 밖엔 해골이 늘었다던데…'] },
+  { id: 'v_bess',  name: '목수 베스', sprite: 'rogue',     x: 104.5, y: 70.5, villager: true, area: [100, 66, 10, 10], lines: ['대장간 로릭이 또 밤새 망치질이군요.', '북쪽 문 밖 길은 황야로 이어져요. 조심하세요.'] },
+  { id: 'v_tom',   name: '늙은 톰',   sprite: 'knight',    x: 72.5, y: 86.5, villager: true, area: [66, 82, 12, 8], lines: ['젊었을 땐 나도 기사단이었지.', '리치 왕은 남서쪽 늪에서 잠들어 있다네. 깨우지 말게.'] },
+  { id: 'v_elsa',  name: '엘사',     sprite: 'mage',      x: 106.5, y: 96.5, villager: true, area: [100, 94, 10, 10], lines: ['시계탑 종소리가 나면 저녁이에요.', '예배당의 안셀 님은 죄를 씻어 주신대요.'] },
+  { id: 'v_luka',  name: '짐꾼 루카', sprite: 'barbarian', x: 82.5, y: 106.5, villager: true, area: [76, 102, 14, 8], lines: ['은행에 맡기면 죽어도 안 잃어요. 꼭 맡기세요.', '동쪽 숲엔 타락한 성기사가 돌아다닌대요.'] },
+  { id: 'v_mari',  name: '마리',     sprite: 'rogue',     x: 94.5, y: 106.5, villager: true, area: [90, 102, 14, 8], lines: ['풍차 뒤편은 조용해서 좋아요.', '붉은 이름을 한 사람은 피하세요. 카오틱이에요.'] },
+  { id: 'v_olaf',  name: '나무꾼 올라프', sprite: 'barbarian', x: 88.5, y: 82.5, villager: true, area: [82, 80, 12, 6], lines: ['남쪽 강 너머엔 회색 송곳니가 살아요.', '파티를 맺으면 경험치를 나눠 가져요.'] },
 ];
 
 export const CLASSES = {

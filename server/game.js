@@ -1,6 +1,6 @@
 // Authoritative game world. The server decides movement, combat, items, shops and rewards;
 // clients only send intentions (move / attack / use item / buy ...).
-import { MAP, TOWN, SPAWN, VIEW_RADIUS, TICK_HZ, SNAP_HZ, MONSTERS, LOOKS, buildWorld, isSafe, findPath, expNeed, dirOf, rng } from '../shared/world.js';
+import { MAP, TOWN, SPAWN, CX, CY, VIEW_RADIUS, TICK_HZ, SNAP_HZ, MONSTERS, LOOKS, buildWorld, isSafe, findPath, expNeed, dirOf, rng } from '../shared/world.js';
 import { ITEMS, SLOTS, INV_SIZE, DROPS, NPCS, CLASSES, CLASS_LEVEL, ADV, ADV_LEVEL, ADV_OF, classInfo, statsFor, itemStats, ENH_RATE, enhCost, sellPrice, itemName, BANK_SIZE, QUESTS } from '../shared/rules.js';
 import { accountForToken, loadCharacter, saveCharacter } from './db.js';
 
@@ -50,7 +50,8 @@ function freeTileIn(ring, r) {
 }
 { const r = rng(7); for (const [type, m] of Object.entries(MONSTERS)) for (let i = 0; i < m.count; i++) { const [x, y] = m.fixed ? m.fixed : freeTileIn(m.ring, r); spawnMonster(type, x, y); } }
 const npcById = {};
-for (const n of NPCS) { const e = { ...n, npcId: n.id, id: nextId++, kind: 'npc', level: 0, hp: 1, maxHp: 1, dir: n.guard ? 0 : 1, metaVer: 1 }; ents.set(e.id, e); npcById[n.id] = e; }
+for (const n of NPCS) { const e = { ...n, npcId: n.id, id: nextId++, kind: 'npc', level: 0, hp: 1, maxHp: 1, dir: n.guard ? 0 : 1, metaVer: 1, speed: 1.6, path: null, wanderT: 0, fx: {} }; ents.set(e.id, e); npcById[n.id] = e; }
+function villagerAI(e, dt) { if (!e.path) { e.moving = false; if (now() > e.wanderT) { e.wanderT = now() + 3000 + R() * 7000; const a = e.area; const tx = a[0] + Math.floor(R() * a[2]), ty = a[1] + Math.floor(R() * a[3]); if (!W.block[ty * MAP + tx]) setPath(e, tx + .5, ty + .5); } } step(e, dt); }
 
 // ── drops on the ground
 function spawnDrop(x, y, item, gold, owner) {
@@ -193,6 +194,7 @@ function useSkill(p, targetId) {
 
 // ── NPC services
 function npcFor(p, npcId) { const n = npcById[npcId]; if (!n) return null; if (dist(p, n) > 3.2) { sys(p, `${n.name}에게 더 가까이 가세요.`); return null; } return n; }
+function talkTo(p, n) { face(p, n); if (n.villager) { n.dir = dirOf(p.x - n.x, p.y - n.y); n.path = null; n.wanderT = now() + 6000; sys(p, `${n.name}: "${n.lines[Math.floor(R() * n.lines.length)]}"`); return; } p.npcOpen = n.npcId; sendTo(p, npcInfo(n, p)); }
 function npcInfo(n, p) { const quests = QUESTS.filter(q => q.giver === n.npcId).map(q => ({ id: q.id, st: questState(p, q), prog: questProgress(p, q) })); return { t: 'npc', id: n.npcId, name: n.name, shop: n.shop || null, craft: n.craft || null, enhance: !!n.enhance, rest: n.rest || 0, master: n.master || null, atone: !!n.atone, guard: !!n.guard, bank: !!n.bank, quests, bankItems: n.bank ? p.bank : undefined, bankGold: n.bank ? p.bankGold : undefined }; }
 function refreshNpc(p) { if (p.npcOpen) { const n = npcById[p.npcOpen]; if (n && dist(p, n) <= 3.2) sendTo(p, npcInfo(n, p)); else p.npcOpen = null; } }
 function service(p, m) {
@@ -305,11 +307,12 @@ function pursue(e, t, dt) {
   if (!e.path || now() - e.pathT > 400) { e.pathT = now(); setPath(e, t.x, t.y); }
   step(e, dt);
 }
+function setPathNpc(e, tx, ty) { return setPath(e, tx, ty); }
 function playerTick(p, dt) {
   if (p.dead) { if (now() >= p.respawnAt) { p.dead = false; p.x = SPAWN.x + (R() - .5) * 2; p.y = SPAWN.y + (R() - .5) * 2; applyStats(p, true); bump(p); } return; }
   if (p.stunT > now()) { p.moving = false; return; }
   if (p.pick) { const d = ents.get(p.pick); if (!d) p.pick = 0; else if (dist(p, d) <= 1.2) { p.pick = 0; p.path = null; tryPick(p, d); } else if (!p.path) { setPath(p, d.x, d.y); if (!p.path) p.pick = 0; } }
-  if (p.talk) { const n = npcById[p.talk]; if (n && dist(p, n) <= 2.2) { p.talk = null; p.path = null; face(p, n); p.npcOpen = n.npcId; sendTo(p, npcInfo(n, p)); } else if (!p.path) p.talk = null; }
+  if (p.talk) { const n = npcById[p.talk]; if (n && dist(p, n) <= 2.2) { p.talk = null; p.path = null; talkTo(p, n); } else if (!p.path) p.talk = null; }
   if (p.npcOpen) { const n = npcById[p.npcOpen]; if (!n || dist(p, n) > 3.5) { p.npcOpen = null; sendTo(p, { t: 'npcclose' }); } }
   if (p.engaged && p.target) { const t = ents.get(p.target.id); if (!t || t.dead || !canFight(p, t)) { p.engaged = false; p.target = null; } else pursue(p, t, dt); }
   else step(p, dt);
@@ -328,6 +331,7 @@ setInterval(() => {
   for (const e of [...ents.values()]) {
     if (isPlayer(e)) { playerTick(e, DT); if (!e.dead) effectsTick(e); continue; }
     if (e.kind === 'drop') { if (now() > e.expires) ents.delete(e.id); continue; }
+    if (e.kind === 'npc') { if (e.villager) { let awake = false; for (const p of players) if (Math.abs(p.x - e.x) < 32 && Math.abs(p.y - e.y) < 32) { awake = true; break; } if (awake) villagerAI(e, DT); } continue; }
     if (!isMonster(e)) continue;
     if (e.dead) { if (now() >= e.respawnAt) { e.dead = false; e.x = e.sx; e.y = e.sy; e.hp = e.maxHp; e.target = null; e.path = null; e.fx = {}; e.sk = {}; if (e.boss) broadcastAll({ t: 'chat', sys: true, msg: `${e.name}이(가) 다시 나타났습니다.` }); } continue; }
     let awake = false; for (const p of players) if (Math.abs(p.x - e.x) < 32 && Math.abs(p.y - e.y) < 32) { awake = true; break; }
@@ -385,7 +389,7 @@ export function onConnection(sock) {
       case 'attack': { const t = ents.get(+m.id); if (!t || t === p) return; if (!canFight(p, t)) { sys(p, isSafe(p.x, p.y) || isSafe(t.x, t.y) ? '마을 안에서는 싸울 수 없습니다. 성문 밖으로 나가세요.' : '공격할 수 없는 대상입니다.'); return; } clearIntent(); p.target = t; p.engaged = true; break; }
       case 'stop': clearIntent(); p.path = null; break;
       case 'pick': { const d = ents.get(+m.id); if (!d || d.kind !== 'drop') return; clearIntent(); p.pick = d.id; if (dist(p, d) > 1.2) setPath(p, d.x, d.y); break; }
-      case 'talk': { const n = npcById[m.npc]; if (!n) return; clearIntent(); if (dist(p, n) <= 2.2) { face(p, n); p.npcOpen = n.npcId; sendTo(p, npcInfo(n, p)); } else { p.talk = m.npc; setPath(p, n.x, n.y); } break; }
+      case 'talk': { const n = npcById[m.npc]; if (!n) return; clearIntent(); if (dist(p, n) <= 2.2) talkTo(p, n); else { p.talk = m.npc; setPath(p, n.x, n.y); } break; }
       case 'npcclose': p.npcOpen = null; break;
       case 'quests': sendTo(p, { t: 'quests', q: QUESTS.map(q => ({ id: q.id, st: questState(p, q), prog: questProgress(p, q) })) }); break;
       case 'heal': heal(p); break;
