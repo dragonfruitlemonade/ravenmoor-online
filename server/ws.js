@@ -8,13 +8,14 @@ const MAX = 1 << 20;
 
 export class Socket extends EventEmitter {
   constructor(sock) {
-    super(); this.sock = sock; this.buf = Buffer.alloc(0); this.frag = []; this.open = true;
+    super(); this.sock = sock; this.buf = Buffer.alloc(0); this.frag = []; this.open = true; this.lastPong = Date.now();
     sock.setNoDelay(true);
     sock.on('data', d => this._data(d));
     sock.on('close', () => this._close());
     sock.on('error', () => this._close());
   }
   _close() { if (!this.open) return; this.open = false; this.emit('close'); }
+  ping() { this._send(0x9, Buffer.alloc(0)); }
   _data(d) {
     this.buf = this.buf.length ? Buffer.concat([this.buf, d]) : d;
     for (;;) {
@@ -30,7 +31,7 @@ export class Socket extends EventEmitter {
       this.buf = this.buf.subarray(need);
       if (op === 0x8) { this.close(); return; }
       if (op === 0x9) { this._send(0xA, payload); continue; }
-      if (op === 0xA) continue;
+      if (op === 0xA) { this.lastPong = Date.now(); continue; }
       if (op === 0x1 || op === 0x2 || op === 0x0) {
         this.frag.push(payload);
         if (fin) { const msg = Buffer.concat(this.frag); this.frag = []; this.emit('message', msg.toString('utf8')); }

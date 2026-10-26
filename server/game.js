@@ -334,6 +334,7 @@ function effectsTick(e) {
 
 // ── tick
 let lastSnap = 0, lastSave = 0;
+setInterval(() => { for (const c of [...clients]) { if (!c.player && now() - c.lastMsg > 20000) { c.sock.close(); continue; } if (now() - c.sock.lastPong > 45000 && now() - c.lastMsg > 45000) { c.sock.close(); continue; } c.sock.ping(); } }, 15000).unref();
 setInterval(() => {
   const players = [...ents.values()].filter(isPlayer);
   for (const e of [...ents.values()]) {
@@ -371,9 +372,10 @@ const online = new Map();   // accountId -> player
 export function onConnection(sock) {
   const c = { sock, player: null, known: new Map(), chatT: 0, msgs: 0, winT: now() };
   clients.add(c);
-  sock.on('message', raw => {
+  function handle(raw) {
     if (now() - c.winT > 1000) { c.winT = now(); c.msgs = 0; } if (++c.msgs > 40) return;   // flood guard
     let m; try { m = JSON.parse(raw); } catch { return; }
+    c.lastMsg = now();
     const p = c.player;
     if (m.t === 'join' && !p) {
       const acc = accountForToken(m.token); if (!acc) { sock.send(JSON.stringify({ t: 'err', msg: '로그인이 만료되었습니다. 다시 로그인하세요.', relogin: true })); return; }
@@ -443,7 +445,9 @@ export function onConnection(sock) {
       case 'leaderboard': sendTo(p, { t: 'leaderboard', rows: leaderboardRows() }); break;
       case 'ping': sock.send(JSON.stringify({ t: 'pong', c: m.c, s: now() })); break;
     }
-  });
+  }
+  c.lastMsg = now();
+  sock.on('message', raw => { try { handle(raw); } catch (err) { console.error('message error', err); } });
   sock.on('close', () => {
     clients.delete(c); const p = c.player; if (!p) return;
     social.onDisconnect(p); logEvent('logout', p.name);
