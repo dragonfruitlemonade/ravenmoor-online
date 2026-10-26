@@ -238,8 +238,8 @@ function onMsg(m) {
     }
     return;
   }
-  if (m.t === 'chat') { if (m.notice) { addLog('📣 ' + esc(m.msg), 'notice'); sfx.bell(); showNotice(m.msg); return; } if (m.whisper) { addLog(`<b class="wn">${m.to ? '→ ' + esc(m.to) : esc(m.n)}</b> ${esc(m.msg)}`, 'whisper'); if (!m.to) { lastWhisper = m.n; sfx.pickup(); } return; } if (m.party) { addLog(`<b class="pn">[파티] ${esc(m.n)}</b> ${esc(m.msg)}`, 'party'); return; } if (m.guild) { addLog(`<b class="gn">[길드] ${esc(m.n)}</b> ${esc(m.msg)}`, 'guild'); return; } if (m.all) { addLog(`<b class="an">[전체] ${esc(m.n)}</b> ${esc(m.msg)}`, 'all'); return; }
-    if (m.sys) { addLog(m.msg, 'sys'); if (/의뢰 (수락|완료)|주웠습니다/.test(m.msg)) sfx[/주웠/.test(m.msg) ? (/금화/.test(m.msg) ? 'coin' : 'pickup') : 'quest'](); else if (/가득|부족|없습니다|없어|않습니다|없는/.test(m.msg)) sfx.deny(); } else { addLog(`<b>${esc(m.n)}</b> ${esc(m.msg)}`, m.id === myId ? 'me' : ''); const e = ents.get(m.id); if (e) { e.say = m.msg; e.sayT = t; } } }
+  if (m.t === 'chat') { if (m.notice) { addLog('📣 ' + esc(m.msg), 'notice'); sfx.bell(); showNotice(m.msg); return; } if (m.whisper) { addLog(`<b class="wn">${m.to ? '→ ' + esc(m.to) : esc(m.n)}</b> ${esc(m.msg)}`, 'whisper'); if (!m.to) { lastWhisper = m.n; sfx.pickup(); } return; } if (m.party) { addLog(`<b class="pn">[파티] ${esc(m.n)}</b> ${esc(m.msg)}`, 'party'); return; } if (m.guild) { addLog(`<b class="gn">[길드] ${esc(m.n)}</b> ${esc(m.msg)}`, 'guild'); return; } if (m.all) { addLog(`<b class="an">[전체] ${esc(m.n)}</b> ${esc(m.msg)}`, 'all near'); return; }
+    if (m.sys) { addLog(m.msg, 'sys'); if (/의뢰 (수락|완료)|주웠습니다/.test(m.msg)) sfx[/주웠/.test(m.msg) ? (/금화/.test(m.msg) ? 'coin' : 'pickup') : 'quest'](); else if (/가득|부족|없습니다|없어|않습니다|없는/.test(m.msg)) sfx.deny(); } else { addLog(`<b>${esc(m.n)}</b> ${esc(m.msg)}`, m.id === myId ? 'me near' : 'near'); const e = ents.get(m.id); if (e) { e.say = m.msg; e.sayT = t; } } }
 }
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 function addLog(html, cls) { const d = document.createElement('div'); d.className = cls || ''; d.innerHTML = html; const L = $('log'); L.appendChild(d); while (L.children.length > 40) L.firstChild.remove(); }
@@ -285,7 +285,12 @@ addEventListener('keydown', ev => {
   else if (k === 'z' && me) { let best = null, bd = 6; for (const d of ents.values()) { if (d.kind !== 3) continue; const dd = Math.hypot(d.x - me.x, d.y - me.y); if (dd < bd) { bd = dd; best = d; } } if (best) send({ t: 'pick', id: best.id }); else addLog('근처에 주울 것이 없습니다.', 'sys'); }
   else if (k === 'a' && me) { let best = null, bd = 9; for (const e of ents.values()) { if (e.kind !== 2 || e.st === 4) continue; const d = Math.hypot(e.x - me.x, e.y - me.y); if (d < bd) { bd = d; best = e; } } if (best) { targetId = best.id; send({ t: 'attack', id: best.id }); } else addLog('근처에 공격할 몬스터가 없습니다.', 'sys'); }
 });
-$('chatform').addEventListener('submit', ev => { ev.preventDefault(); const v = $('chatin').value.trim(); if (v) send({ t: 'chat', msg: v }); $('chatin').value = ''; $('chatin').blur(); });
+const CHANNELS = [['', '일반'], ['party', '파티'], ['guild', '길드'], ['all', '전체']]; let chan = 0;
+function setChan(i) { chan = (i + CHANNELS.length) % CHANNELS.length; const b = $('chatch'); b.textContent = CHANNELS[chan][1]; b.className = CHANNELS[chan][0]; $('chatin').placeholder = chan ? `${CHANNELS[chan][1]} 채팅` : 'Enter 키로 대화'; }
+$('chatch').onclick = () => { setChan(chan + 1); $('chatin').focus(); };
+$('chatin').addEventListener('keydown', ev => { if (ev.key === 'Tab') { ev.preventDefault(); setChan(chan + 1); } });
+$('chatform').addEventListener('submit', ev => { ev.preventDefault(); let v = $('chatin').value.trim(); if (v && v[0] !== '/' && chan) v = { party: '/파티 ', guild: '/길 ', all: '/전체 ' }[CHANNELS[chan][0]] + v; if (v) send({ t: 'chat', msg: v }); $('chatin').value = ''; $('chatin').blur(); });
+for (const b of document.querySelectorAll('#chattabs button')) b.onclick = () => { for (const x of b.parentNode.children) x.classList.toggle('on', x === b); $('log').className = b.dataset.f ? 'f-' + b.dataset.f : ''; $('log').scrollTop = 1e9; };
 
 // ───────────────────────── join screen (login / register)
 let pickedLook = 'knight', mode = 'login';

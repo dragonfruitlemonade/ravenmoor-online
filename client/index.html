@@ -30,8 +30,9 @@
   <div class="panel target" id="target" hidden><div class="tn"><span id="tname"></span><em id="tlv"></em></div><div class="bar hp"><i id="thpb"></i></div></div>
   <div class="bottom">
     <div class="chat">
+      <div class="chattabs" id="chattabs"><button class="on" data-f="">모두</button><button data-f="near">주변</button><button data-f="party">파티</button><button data-f="guild">길드</button><button data-f="whisper">귓속말</button><button data-f="sys">알림</button></div>
       <div id="log"></div>
-      <form id="chatform" autocomplete="off"><input id="chatin" maxlength="120" placeholder="Enter 키로 대화"></form>
+      <form id="chatform" autocomplete="off"><button type="button" id="chatch" title="Tab 키로 채널 바꾸기">일반</button><input id="chatin" maxlength="120" placeholder="Enter 키로 대화"></form>
     </div>
     <div class="right">
       <div class="keys"><kbd>클릭</kbd> 이동·공격·줍기·대화 <kbd>Enter</kbd> 채팅 <kbd>우클릭</kbd> 상대 메뉴 <kbd>L</kbd> 순위 <kbd>Esc</kbd> 멈춤/창 닫기 <button id="adminLink" class="link" hidden>운영 페이지</button><button id="logout" class="link">로그아웃</button></div>

@@ -43,7 +43,10 @@ html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);font-family:
 .chat{width:min(440px,60vw);pointer-events:auto}
 #log{max-height:180px;overflow:hidden;display:flex;flex-direction:column;justify-content:flex-end;font-size:12.5px;line-height:1.55;text-shadow:0 1px 2px #000,0 0 6px #000;pointer-events:none}
 #log .sys{color:#c8c0a8}#log .me{color:#ffe08a}#log b{color:#9ec7ff;font-weight:500}
-#chatform input{width:100%;margin-top:6px;background:rgba(10,11,14,.8);border:1px solid #2c2f3a;color:var(--fg);font-family:var(--body);font-size:13px;padding:6px 8px;opacity:.55}
+.chattabs{display:flex;gap:2px;margin-bottom:4px}.chattabs button{background:transparent;border:0;color:var(--muted);font-family:var(--body);font-size:11px;padding:2px 7px;cursor:pointer;border-bottom:2px solid transparent}.chattabs button.on{color:var(--gold);border-bottom-color:var(--gold)}
+#log.f-near>:not(.near),#log.f-party>:not(.party),#log.f-guild>:not(.guild),#log.f-whisper>:not(.whisper),#log.f-sys>:not(.sys):not(.notice){display:none}
+#chatform{display:flex;gap:4px;align-items:center}#chatch{margin-top:6px;background:var(--panel);border:1px solid #2c2f3a;color:var(--gold);font-family:var(--body);font-size:11.5px;padding:6px 8px;cursor:pointer;white-space:nowrap}#chatch.party{color:#8fe3a0}#chatch.guild{color:#d8c27a}#chatch.all{color:#ffc070}
+#chatform input{flex:1;min-width:0;margin-top:6px;background:rgba(10,11,14,.8);border:1px solid #2c2f3a;color:var(--fg);font-family:var(--body);font-size:13px;padding:6px 8px;opacity:.55}
 #chatform input:focus{opacity:1;outline:1px solid var(--gold)}
 .right{display:flex;flex-direction:column;align-items:flex-end;gap:6px}
 .keys{font-size:11px;color:var(--muted);text-shadow:0 1px 2px #000;text-align:right;pointer-events:auto}.keys kbd{font-family:var(--display);color:var(--gold);margin:0 3px 0 8px}
