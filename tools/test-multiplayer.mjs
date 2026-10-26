@@ -67,6 +67,7 @@ check(!!drop, 'gold drops on the ground');
 B.send({ t: 'pick', id: drop?.[0] });
 const goldBefore = A.inv.gold; A.send({ t: 'pick', id: drop?.[0] }); await sleep(2000);
 check(A.inv.gold > goldBefore, `owner picks up the gold (${goldBefore} -> ${A.inv.gold})`);
+const before = [...A.ents.values()].filter(e => A.meta.get(e[0])?.[1] === 3 && Math.hypot(e[1] - A.pos()[0], e[2] - A.pos()[1]) < 6).map(e => e[0]); A.send({ t: 'pickall' }); await sleep(4000); check(before.every(id => !A.ents.has(id)), `Z (pickall) clears the ${before.length} nearby drops`);
 
 // persistence + class change: bump level in the DB, log back in, change class at the knights' hall
 A.ws.close(); await sleep(400);

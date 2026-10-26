@@ -349,6 +349,7 @@ function playerTick(p, dt) {
   if (p.stunT > now()) { p.moving = false; return; }
   if (now() - (p.combatT || 0) > 6000 && (p.hp < p.maxHp || p.mp < p.maxMp)) { const town = isSafe(p.x, p.y) ? 2 : 1; p.hp = Math.min(p.maxHp, p.hp + p.maxHp * .015 * town * dt); p.mp = Math.min(p.maxMp, p.mp + p.maxMp * .02 * town * dt); }
   if (p.pick) { const d = ents.get(p.pick); if (!d) p.pick = 0; else if (dist(p, d) <= 1.2) { p.pick = 0; p.path = null; tryPick(p, d); } else if (!p.path) { setPath(p, d.x, d.y); if (!p.path) p.pick = 0; } }
+  if (!p.pick && p.pickQ && p.pickQ.length) { while (p.pickQ.length) { const id = p.pickQ.shift(); const d = ents.get(id); if (d && d.kind === 'drop') { p.pick = id; if (dist(p, d) > 1.2) setPath(p, d.x, d.y); break; } } if (!p.pickQ.length) p.pickQ = null; }
   if (p.talk) { const n = npcById[p.talk]; if (n && dist(p, n) <= 2.2) { p.talk = null; p.path = null; talkTo(p, n); } else if (!p.path) p.talk = null; }
   if (p.npcOpen) { const n = npcById[p.npcOpen]; if (!n || dist(p, n) > 3.5) { p.npcOpen = null; sendTo(p, { t: 'npcclose' }); } }
   if (p.engaged && p.target) { const t = ents.get(p.target.id); if (!t || t.dead || !canFight(p, t)) { p.engaged = false; p.target = null; } else pursue(p, t, dt); }
@@ -456,13 +457,14 @@ export function onConnection(sock) {
     }
     if (!p) return;
     if (p.dead && m.t !== 'chat') return;
-    const clearIntent = () => { p.engaged = false; p.target = null; p.pick = 0; p.talk = null; };
+    const clearIntent = () => { p.engaged = false; p.target = null; p.pick = 0; p.pickQ = null; p.talk = null; };
     if (m.t === 'move' || m.t === 'attack') p.npcOpen = null;
     switch (m.t) {
       case 'move': { const x = +m.x, y = +m.y; if (!(x >= 0 && y >= 0 && x < MAP && y < MAP)) return; clearIntent(); setPath(p, x, y); break; }
       case 'attack': { const t = ents.get(+m.id); if (!t || t === p) return; if (!canFight(p, t)) { sys(p, isSafe(p.x, p.y) || isSafe(t.x, t.y) ? '마을 안에서는 싸울 수 없습니다. 성문 밖으로 나가세요.' : isPlayer(t) && (p.level < PK_MIN || t.level < PK_MIN) ? `레벨 ${PK_MIN} 미만의 모험가는 서로 공격할 수 없습니다.` : '공격할 수 없는 대상입니다.'); return; } clearIntent(); p.target = t; p.engaged = true; break; }
       case 'stop': clearIntent(); p.path = null; break;
-      case 'pick': { const d = ents.get(+m.id); if (!d || d.kind !== 'drop') return; clearIntent(); p.pick = d.id; if (dist(p, d) > 1.2) setPath(p, d.x, d.y); break; }
+      case 'pick': { const d = ents.get(+m.id); if (!d || d.kind !== 'drop') return; clearIntent(); p.pickQ = null; p.pick = d.id; if (dist(p, d) > 1.2) setPath(p, d.x, d.y); break; }
+      case 'pickall': { const ds = near(p.x, p.y, 7, e => e.kind === 'drop' && (!e.owner || e.owner === p.id || now() >= e.ownerUntil || (e.ownerParty && e.ownerParty === p.partyId))).sort((a, b) => dist(p, a) - dist(p, b)); if (!ds.length) return sys(p, '근처에 주울 것이 없습니다.'); clearIntent(); p.pickQ = ds.slice(1).map(d => d.id); p.pick = ds[0].id; if (dist(p, ds[0]) > 1.2) setPath(p, ds[0].x, ds[0].y); break; }
       case 'talk': { const n = npcById[m.npc]; if (!n) return; clearIntent(); if (dist(p, n) <= 2.2) talkTo(p, n); else { p.talk = m.npc; setPath(p, n.x, n.y); } break; }
       case 'npcclose': p.npcOpen = null; break;
       case 'title': setTitle(p, String(m.id || 'none')); break;
