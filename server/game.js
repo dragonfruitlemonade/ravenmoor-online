@@ -3,6 +3,8 @@
 import { MAP, TOWN, SPAWN, CX, CY, VIEW_RADIUS, TICK_HZ, SNAP_HZ, MONSTERS, LOOKS, buildWorld, isSafe, findPath, expNeed, dirOf, rng } from '../shared/world.js';
 import { ITEMS, SLOTS, INV_SIZE, DROPS, NPCS, CLASSES, CLASS_LEVEL, ADV, ADV_LEVEL, ADV_OF, classInfo, statsFor, itemStats, ENH_RATE, enhCost, sellPrice, itemName, BANK_SIZE, QUESTS } from '../shared/rules.js';
 import { accountForToken, loadCharacter, saveCharacter } from './db.js';
+import { createSocial } from './social.js';
+import { adminCommand, logEvent, banInfo, isAdmin } from './admin.js';
 
 const W = buildWorld();
 const DT = 1 / TICK_HZ;
@@ -16,6 +18,7 @@ const QBY = Object.fromEntries(QUESTS.map(q => [q.id, q]));
 export const worldStart = now();   // day/night: 10 real minutes per game day
 const dayPhase = () => ((now() - worldStart) / 600000) % 1;
 
+const findPlayerByName = name => { const n = String(name || '').toLowerCase(); for (const e of ents.values()) if (e.kind === 'player' && e.name.toLowerCase() === n) return e; return null; };
 export const STARTER = { gold: 300, inventory: [{ id: 'hpPotion', n: 5 }, { id: 'scroll', n: 2 }], equipment: { weapon: { id: 'dagger', enh: 0 } } };
 
 // ── helpers
@@ -32,6 +35,7 @@ function canFight(a, b) {
   if (!a || !b || a === b || a.dead || b.dead) return false;
   if (!(isPlayer(a) || isMonster(a)) || !(isPlayer(b) || isMonster(b))) return false;
   if (isMonster(a) && isMonster(b)) return false;
+  if (isPlayer(a) && isPlayer(b) && social.sameParty(a, b)) return false;
   if (isSafe(a.x, a.y) || isSafe(b.x, b.y)) return false;
   return true;
 }
@@ -132,7 +136,8 @@ function kill(b, a) {
       const g = m.gold[0] + Math.floor(R() * (m.gold[1] - m.gold[0] + 1));
       spawnDrop(b.x, b.y, null, g, a);
       for (const [id, p] of DROPS[b.type] || []) if (R() < p) spawnDrop(b.x, b.y, { id, n: 1, enh: 0 }, 0, a);
-      gainExp(a, m.exp); questKill(a, b.type);
+      social.shareExp(a, m.exp, gainExp); questKill(a, b.type);
+      if (social.partyOf(a)) for (const mm of social.partyOf(a).members) if (mm !== a && !mm.dead && dist(mm, a) <= 22) questKill(mm, b.type);
       if (m.boss) broadcastAll({ t: 'chat', sys: true, msg: `👑 ${a.name}이(가) ${m.name}을(를) 쓰러뜨렸습니다!` });
     }
   } else if (isPlayer(b)) {
@@ -147,7 +152,7 @@ function kill(b, a) {
       if (innocent) { a.align -= 1; a.kills++; sys(a, `${b.name}을(를) 살해했습니다. 성향이 떨어져 카오틱(붉은 이름)이 됩니다.`); }
       else { a.align = Math.min(a.align + 1, 30); sys(a, `${b.name}을(를) 처단했습니다.`); }
       bump(a); a.saveDirty = true;
-      broadcastAll({ t: 'chat', sys: true, msg: `⚔ ${a.name}이(가) 성 밖에서 ${b.name}을(를) 쓰러뜨렸습니다.` });
+      broadcastAll({ t: 'chat', sys: true, msg: `⚔ ${a.name}이(가) 성 밖에서 ${b.name}을(를) 쓰러뜨렸습니다.` }); logEvent('pk', a.name, b.name, { innocent, lost });
     }
     invChanged(b);
   }
@@ -264,6 +269,9 @@ function questReady(p, q) { const s = p.quests[q.id]; return !!s && s.st === 'ac
 function questKill(p, type) { for (const q of QUESTS) { const s = p.quests[q.id]; if (!s || s.st !== 'active' || q.type !== 'kill' || q.target !== type) continue; s.k = (s.k || 0) + 1; p.saveDirty = true; if (s.k <= q.n) sys(p, `${q.title}: ${Math.min(s.k, q.n)}/${q.n}` + (s.k === q.n ? ' — 의뢰인에게 돌아가세요.' : '')); } }
 function questMarks(p) { const out = {}; for (const q of QUESTS) { const st = questState(p, q); const cur = out[q.giver]; if (st === 'active' && questReady(p, q)) out[q.giver] = 2; else if (st === 'avail' && cur !== 2) out[q.giver] = 1; } return out; }
 
+const social = createSocial({ ents, sys, sendTo, broadcastAll, findPlayerByName, isSafe, dist, invChanged, addItem, now });
+export { social };
+
 // ── AI
 function bossAI(e, t, dt) {
   const m = MONSTERS[e.type];
@@ -355,7 +363,7 @@ function snapshot(c) {
   const gone = []; for (const id of c.known.keys()) if (!seen.has(id)) { gone.push(id); c.known.delete(id); }
   const cls = classInfo(p.cls);
   c.sock.send(JSON.stringify({ t: 'snap', s: now(), e: list, m: metas, g: gone, day: +dayPhase().toFixed(4), qm: questMarks(p),
-    me: [Math.ceil(p.hp), p.maxHp, Math.floor(p.mp), p.maxMp, p.level, p.exp, expNeed(p.level), p.gold, p.atk, p.def, p.align, p.cls, Math.max(0, p.healT - now()), Math.max(0, p.skillT - now()), cls.skill ? cls.skill.cd : 0, p.atkSpeed, p.range, p.kills, Math.max(0, (p.skill2T || 0) - now()), cls.skill2 ? cls.skill2.cd : 0, p.fx.bless > now() ? 1 : 0] }));
+    me: [Math.ceil(p.hp), p.maxHp, Math.floor(p.mp), p.maxMp, p.level, p.exp, expNeed(p.level), p.gold, p.atk, p.def, p.align, p.cls, Math.max(0, p.healT - now()), Math.max(0, p.skillT - now()), cls.skill ? cls.skill.cd : 0, p.atkSpeed, p.range, p.kills, Math.max(0, (p.skill2T || 0) - now()), cls.skill2 ? cls.skill2.cd : 0, p.fx.bless > now() ? 1 : 0, p.partyId || 0] }));
 }
 
 // ── connections
@@ -371,12 +379,13 @@ export function onConnection(sock) {
       const acc = accountForToken(m.token); if (!acc) { sock.send(JSON.stringify({ t: 'err', msg: '로그인이 만료되었습니다. 다시 로그인하세요.', relogin: true })); return; }
       const prev = online.get(acc); if (prev) { sys(prev, '다른 곳에서 접속하여 연결을 끊습니다.'); prev.client.sock.close(); }
       const ch = loadCharacter(acc); if (!ch) { sock.send(JSON.stringify({ t: 'err', msg: '캐릭터를 찾을 수 없습니다.' })); return; }
+      const ban = banInfo(ch.name); if (ban) { sock.send(JSON.stringify({ t: 'err', msg: `차단된 계정입니다${ban.reason ? ' (' + ban.reason + ')' : ''}${ban.until ? ' · ' + new Date(ban.until).toLocaleString('ko-KR') + '까지' : ''}.`, relogin: true })); return; }
       const pl = { id: nextId++, kind: 'player', accountId: acc, client: c, name: ch.name, look: LOOKS[ch.look] ? ch.look : 'knight', sprite: LOOKS[ch.look] ? ch.look : 'knight', cls: CLASSES[ch.cls] ? ch.cls : 'commoner',
         level: ch.level, exp: ch.exp, gold: ch.gold, align: ch.align, kills: ch.kills, inv: ch.inventory.filter(x => ITEMS[x.id]), equip: {}, bank: (ch.bank || []).filter(x => ITEMS[x.id]), bankGold: ch.bank_gold || 0, quests: ch.quests || {}, skill2T: 0, npcOpen: null,
         x: SPAWN.x + (R() - .5) * 3, y: SPAWN.y + (R() - .5) * 3, speed: 4.2, dir: 0, path: null, target: null, engaged: false, cd: 0, metaVer: 1, flagT: 0, healT: 0, skillT: 0, stunT: 0, fx: {}, pick: 0, talk: null };
       for (const s of SLOTS) { const it = ch.equipment[s]; if (it && ITEMS[it.id] && ITEMS[it.id].type === s) pl.equip[s] = { id: it.id, enh: it.enh || 0 }; }
       applyStats(pl, true); ents.set(pl.id, pl); c.player = pl; online.set(acc, pl);
-      sock.send(JSON.stringify({ t: 'welcome', id: pl.id, name: pl.name })); sendInv(pl);
+      pl.admin = isAdmin(pl.name); sock.send(JSON.stringify({ t: 'welcome', id: pl.id, name: pl.name, admin: pl.admin })); sendInv(pl); logEvent('login', pl.name, null, (c.sock.sock.remoteAddress || ''));
       broadcastAll({ t: 'chat', sys: true, msg: `${pl.name}님이 레이븐무어에 들어왔습니다. (접속 ${online.size}명)` });
       return;
     }
@@ -406,12 +415,38 @@ export function onConnection(sock) {
       case 'unequip': { const s = String(m.slot); const it = p.equip[s]; if (!it) return; if (p.inv.length >= INV_SIZE) return sys(p, '가방이 가득 찼습니다.'); delete p.equip[s]; p.inv.push({ id: it.id, n: 1, enh: it.enh || 0 }); applyStats(p); invChanged(p); break; }
       case 'drop': { const it = p.inv[m.i | 0]; if (!it || it.id !== m.id) return; p.inv.splice(m.i | 0, 1); spawnDrop(p.x, p.y, it, 0, null); sys(p, `${itemName(it)}을(를) 바닥에 내려놓았습니다.`); invChanged(p); break; }
       case 'buy': case 'sell': case 'craft': case 'enhance': case 'rest': case 'job': case 'advance': case 'atone': case 'bankIn': case 'bankOut': case 'bankGold': case 'qaccept': case 'qdone': service(p, m); break;
-      case 'chat': { const text = String(m.msg || '').slice(0, 120).trim(); if (!text || now() - c.chatT < 600) return; c.chatT = now(); broadcastNear(p.x, p.y, { t: 'chat', id: p.id, n: p.name, msg: text }, 30); break; }
+      case 'chat': {
+        const text = String(m.msg || '').slice(0, 160).trim(); if (!text || now() - c.chatT < 500) return; c.chatT = now();
+        if (text[0] === '/') {
+          if (adminCommand(p, text, { sys, broadcastAll, findPlayerByName, ents, addItem, invChanged, applyStats, bump, MONSTERS, spawnMonster })) return;
+          const [cmd, ...args] = text.split(/\s+/); const rest = args.join(' ');
+          if (cmd === '/귓' || cmd === '/w') { if (args.length < 2) return sys(p, '사용법: /귓 이름 내용'); social.whisper(p, args[0], args.slice(1).join(' ')); }
+          else if (cmd === '/파티' || cmd === '/p') { if (args.length < 1) return sys(p, '사용법: /파티 초대 이름 · /파티 수락 · /파티 나가기 · /파티 추방 이름 · /파티 내용(파티 채팅)'); const sub = args[0]; if (sub === '초대') social.invite(p, args[1]); else if (sub === '수락') social.accept(p); else if (sub === '나가기' || sub === '탈퇴') social.leaveParty(p); else if (sub === '추방') social.kick(p, args[1] || ''); else social.partyChat(p, rest); }
+          else if (cmd === '/거래') { if (args[0] === '수락') social.tradeAccept(p); else if (args[0] === '취소') social.cancelTrade(p); else if (args[0]) social.tradeRequest(p, args[0]); else sys(p, '사용법: /거래 이름 · /거래 수락 · /거래 취소'); }
+          else if (cmd === '/전체' || cmd === '/all') { if (now() - (c.allT || 0) < 10000) return sys(p, '전체 채팅은 10초에 한 번만 쓸 수 있습니다.'); c.allT = now(); broadcastAll({ t: 'chat', all: true, id: p.id, n: p.name, msg: rest }); }
+          else if (cmd === '/순위') sendTo(p, { t: 'chat', sys: true, msg: '순위는 화면 오른쪽 아래 순위표(L)에서 볼 수 있습니다.' });
+          else if (cmd === '/도움' || cmd === '/help') sys(p, '명령: /귓 이름 내용 · /파티 초대|수락|나가기|추방 · /거래 이름|수락|취소 · /전체 내용 · /도움');
+          else sys(p, '알 수 없는 명령입니다. /도움');
+          return;
+        }
+        broadcastNear(p.x, p.y, { t: 'chat', id: p.id, n: p.name, msg: text }, 30); break;
+      }
+      case 'pinvite': social.invite(p, String(m.name || '')); break;
+      case 'paccept': social.accept(p); break;
+      case 'pleave': social.leaveParty(p); break;
+      case 'pkick': social.kick(p, String(m.name || '')); break;
+      case 'trade': social.tradeRequest(p, String(m.name || '')); break;
+      case 'taccept': social.tradeAccept(p); break;
+      case 'toffer': social.tradeOffer(p, m.items, m.gold); break;
+      case 'tconfirm': { const r = social.tradeConfirm(p); if (r) logEvent('trade', r.a, r.b, r); break; }
+      case 'tcancel': social.cancelTrade(p); break;
+      case 'leaderboard': sendTo(p, { t: 'leaderboard', rows: leaderboardRows() }); break;
       case 'ping': sock.send(JSON.stringify({ t: 'pong', c: m.c, s: now() })); break;
     }
   });
   sock.on('close', () => {
     clients.delete(c); const p = c.player; if (!p) return;
+    social.onDisconnect(p); logEvent('logout', p.name);
     try { saveCharacter(p); } catch (err) { console.error('save failed', err); }
     ents.delete(p.id); if (online.get(p.accountId) === p) online.delete(p.accountId);
     for (const e of ents.values()) if (e.target === p) { e.target = null; e.engaged = false; }
@@ -424,5 +459,7 @@ function equip(p, i, id) {
   p.inv.splice(i, 1); const prev = p.equip[b.type]; p.equip[b.type] = { id: it.id, enh: it.enh || 0 }; if (prev) p.inv.push({ id: prev.id, n: 1, enh: prev.enh || 0 });
   applyStats(p); invChanged(p); sys(p, `${itemName(it)} 장착`);
 }
+import { leaderboard } from './admin.js';
+function leaderboardRows() { return leaderboard(20).map(r => ({ name: r.name, level: r.level, cls: r.cls, kills: r.kills, align: r.align, online: !!findPlayerByName(r.name) })); }
 export function saveAll() { for (const e of ents.values()) if (isPlayer(e)) try { saveCharacter(e); } catch {} }
 export function stats() { let players = 0, monsters = 0, drops = 0; for (const e of ents.values()) { if (isPlayer(e)) players++; else if (isMonster(e)) monsters++; else if (e.kind === 'drop') drops++; } return { players, monsters, drops }; }

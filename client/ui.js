@@ -33,7 +33,7 @@ const itemIcon = (MF, id) => iconSrc(MF, ITEMS[id] ? ITEMS[id].icon : 'gold');
 
 // ── window manager
 export function createUI({ MF, send, log }) {
-  const state = { inv: [], equip: {}, gold: 0, me: null, npc: null, npcTab: null, selInv: -1, selEq: null, selEnh: null, quests: [] };
+  const state = { inv: [], equip: {}, gold: 0, me: null, npc: null, npcTab: null, selInv: -1, selEq: null, selEnh: null, quests: [], trade: null, tsel: [], tgold: 0, board: [] };
   const wins = {};
   let z = 20;
   function makeWin(key, title, css) {
@@ -51,8 +51,10 @@ export function createUI({ MF, send, log }) {
   makeWin('inv', '가방', { right: '16px', top: '200px' }); makeWin('eq', '장비', { left: '16px', top: '220px' }); makeWin('char', '캐릭터', { left: '350px', top: '220px' });
   makeWin('npc', '', { left: '50%', top: '50%', transform: 'translate(-50%,-50%)', width: 'min(500px, calc(100vw - 32px))' });
   makeWin('quest', '의뢰', { right: '16px', top: '200px', width: 'min(380px, calc(100vw - 32px))' });
+  makeWin('trade', '거래', { left: '50%', top: '50%', transform: 'translate(-50%,-50%)', width: 'min(520px, calc(100vw - 32px))' });
+  makeWin('board', '순위표', { left: '50%', top: '50%', transform: 'translate(-50%,-50%)', width: 'min(420px, calc(100vw - 32px))' });
   const show = k => { wins[k].hidden = false; wins[k].style.zIndex = ++z; render(k); };
-  const hide = k => { wins[k].hidden = true; if (k === 'npc') { state.npc = null; send({ t: 'npcclose' }); } };
+  const hide = k => { wins[k].hidden = true; if (k === 'npc') { state.npc = null; send({ t: 'npcclose' }); } if (k === 'trade' && state.trade) { send({ t: 'tcancel' }); state.trade = null; } };
   const toggle = k => wins[k].hidden ? show(k) : hide(k);
   const anyOpen = () => Object.values(wins).some(w => !w.hidden);
   const closeAll = () => Object.keys(wins).forEach(hide);
@@ -84,6 +86,16 @@ export function createUI({ MF, send, log }) {
       const m = state.me; if (!m) return; const c = classInfo(m[11]);
       const row = (a, b) => `<div class="cr"><span>${a}</span><b>${b}</b></div>`;
       body.innerHTML = `<div class="cgrid">${row('직업', c.name)}${row('레벨', m[4])}${row('경험치', `${m[5]} / ${m[6]}`)}${row('체력', `${m[0]} / ${m[1]}`)}${row('마나', `${m[2]} / ${m[3]}`)}${row('공격력', m[8])}${row('방어력', m[9])}${row('공격속도', (1000 / m[15]).toFixed(2) + '/초')}${row('사거리', m[16] > 2 ? m[16] + '칸 (원거리)' : '근접')}${row('기술', c.skill ? c.skill.name + (c.skill2 ? ' · ' + c.skill2.name : '') : '없음')}${row('성향', m[10] < 0 ? `카오틱 ${m[10]}` : m[10])}${row('처치한 모험가', m[17])}</div>${m[11] === 'commoner' ? `<p class="say">레벨 ${CLASS_LEVEL}이 되면 기사단·마법사 탑·예배당·여관의 스승에게 전직할 수 있습니다.</p>` : ADV_OF[m[11]] ? `<p class="say">레벨 ${ADV_LEVEL}이 되면 같은 스승에게 ${ADV[ADV_OF[m[11]]].name}(으)로 승급할 수 있습니다.</p>` : ''}`;
+    } else if (k === 'trade') {
+      const tr = state.trade; if (!tr) { body.innerHTML = hint('거래 중이 아닙니다.'); return; }
+      const side = (o, mine) => `<div class="tside${o.ok ? ' ok' : ''}"><div class="qh">${esc(o.name)}${o.ok ? ' ✓ 확인함' : ''}</div><div class="grid t">${[0, 1, 2, 3, 4, 5, 6, 7].map(i => { const it = o.items[i]; return it ? slot(it.id, it.n, it.enh, '', false) : '<div class="slot empty"></div>'; }).join('')}</div><div class="ds">금화 <b class="gold">${o.gold}</b></div></div>`;
+      const mine = state.inv.map((it, i) => ({ it, i })).filter(x => !tr.myIdx.includes(x.i));
+      body.innerHTML = `<div class="trade2">${side(tr.me, true)}${side(tr.them, false)}</div>
+        <div class="qh" style="margin-top:8px">내 가방 <span class="ds">(누르면 거래 칸에 올림)</span></div><div class="grid">${mine.map(x => slot(x.it.id, x.it.n, x.it.enh, `data-toffer="${x.i}"`, false)).join('') || '<div class="ds">올릴 물건이 없습니다.</div>'}</div>
+        <div class="bankgold"><span>내 금화 <b>${state.gold}</b></span><input type="number" id="tradeGold" min="0" value="${tr.me.gold}" placeholder="금화"><button class="btn" data-act="tgold">금화 올리기</button><button class="btn" data-act="tclear">내리기</button><span style="flex:1"></span><button class="btn" data-act="tconfirm" ${tr.me.ok ? 'disabled' : ''}>확인</button><button class="btn" data-act="tcancel">취소</button></div>
+        <p class="ds" style="margin:8px 0 0">양쪽이 모두 확인을 누르면 교환됩니다. 상대가 내용을 바꾸면 확인이 풀립니다.</p>`;
+    } else if (k === 'board') {
+      body.innerHTML = `<table class="board"><tr><th>#</th><th>이름</th><th>레벨</th><th>직업</th><th>처치</th><th>성향</th></tr>${state.board.map((r, i) => `<tr class="${r.online ? 'on' : ''}"><td>${i + 1}</td><td>${esc(r.name)}${r.online ? ' <span class="ds">접속</span>' : ''}</td><td>${r.level}</td><td>${classInfo(r.cls).name}</td><td>${r.kills}</td><td class="${r.align < 0 ? 'no' : ''}">${r.align}</td></tr>`).join('')}</table>`;
     } else if (k === 'quest') {
       const act = state.quests.filter(x => x.st === 'active'); const done = state.quests.filter(x => x.st === 'done').length;
       body.innerHTML = (act.length ? act.map(x => questRow(QBY[x.id], x.st, x.prog, false)).join('') : hint('진행 중인 의뢰가 없습니다. 상인·경비병·스승의 머리 위에 ! 표시가 있으면 말을 걸어 보세요.')) + `<div class="wfoot"><span>완료한 의뢰 ${done} / ${QUESTS.length}</span></div>`;
@@ -127,6 +139,7 @@ export function createUI({ MF, send, log }) {
     }
   }
   function onClick(k, e) {
+    const to = e.target.closest('[data-toffer]'); if (to && k === 'trade' && state.trade) { const idx = [...state.trade.myIdx, +to.dataset.toffer].slice(0, 8); send({ t: 'toffer', items: idx, gold: state.trade.me.gold }); return; }
     const bk = e.target.closest('[data-bank]'); if (bk && k === 'npc') { send({ t: bk.dataset.bank === 'bank' ? 'bankOut' : 'bankIn', npc: state.npc.id, i: +bk.dataset.i, id: bk.dataset.id }); return; }
     const s = e.target.closest('[data-i],[data-slot],[data-enh]'); const b = e.target.closest('button');
     if (b && b.dataset.tab) { state.npcTab = b.dataset.tab; render('npc'); return; }
@@ -143,6 +156,10 @@ export function createUI({ MF, send, log }) {
   }
   function act(k, a, d) {
     const n = state.npc; const it = state.inv[state.selInv];
+    if (a === 'tgold') { const v = Math.floor(+document.getElementById('tradeGold').value || 0); send({ t: 'toffer', items: state.trade.myIdx, gold: v }); return; }
+    if (a === 'tclear') { send({ t: 'toffer', items: [], gold: 0 }); return; }
+    if (a === 'tconfirm') { send({ t: 'tconfirm' }); return; }
+    if (a === 'tcancel') { send({ t: 'tcancel' }); return; }
     if (a === 'equip' && it) send({ t: 'equip', i: state.selInv, id: it.id });
     else if (a === 'use' && it) send({ t: 'use', i: state.selInv, id: it.id });
     else if (a === 'drop' && it) send({ t: 'drop', i: state.selInv, id: it.id });
@@ -170,6 +187,8 @@ export function createUI({ MF, send, log }) {
     setMe(me) { const changed = !state.me || state.me[4] !== me[4] || state.me[8] !== me[8] || state.me[9] !== me[9] || state.me[11] !== me[11] || state.me[10] !== me[10]; state.me = me; if (changed) for (const k of ['char', 'eq', 'npc']) render(k); },
     openNpc(n) { const same = state.npc && state.npc.id === n.id; state.npc = n; if (!same) { state.npcTab = null; state.selEnh = null; } show('npc'); },
     setQuests(q) { state.quests = q; render('quest'); },
+    setTrade(tr) { if (!tr.id) { state.trade = null; hide('trade'); return; } state.trade = tr; if (wins.trade.hidden) show('trade'); else render('trade'); },
+    setBoard(rows) { state.board = rows; show('board'); },
     closeNpc() { if (!wins.npc.hidden) { wins.npc.hidden = true; state.npc = null; } },
     firstOf(id) { return state.inv.findIndex(x => x.id === id); },
   };

@@ -23,6 +23,9 @@
     <div class="mid"><div class="panel zone" id="zone"><span class="z">Ravenmoor</span><span id="zonet"></span><span id="clock"></span><span id="online"></span></div><div class="panel bossbar" id="bossbar" hidden><div class="bn" id="bossname"></div><div class="bar hp"><i id="bosshp"></i><span id="bosshpt"></span></div></div></div>
     <div class="panel mm"><canvas id="minimap" width="160" height="160"></canvas></div>
   </div>
+  <div id="party" class="panel" hidden></div>
+  <div id="invites"></div>
+  <div id="notice" class="panel" hidden></div>
   <div class="panel target" id="target" hidden><div class="tn"><span id="tname"></span><em id="tlv"></em></div><div class="bar hp"><i id="thpb"></i></div></div>
   <div class="bottom">
     <div class="chat">
@@ -30,7 +33,7 @@
       <form id="chatform" autocomplete="off"><input id="chatin" maxlength="120" placeholder="Enter 키로 대화"></form>
     </div>
     <div class="right">
-      <div class="keys"><kbd>클릭</kbd> 이동·공격·줍기·대화 <kbd>Enter</kbd> 채팅 <kbd>Esc</kbd> 멈춤/창 닫기 <button id="logout" class="link">로그아웃</button></div>
+      <div class="keys"><kbd>클릭</kbd> 이동·공격·줍기·대화 <kbd>Enter</kbd> 채팅 <kbd>우클릭</kbd> 상대 메뉴 <kbd>L</kbd> 순위 <kbd>Esc</kbd> 멈춤/창 닫기 <button id="adminLink" class="link" hidden>운영 페이지</button><button id="logout" class="link">로그아웃</button></div>
       <div id="hotbar">
         <button class="hk atk" data-key="a"><kbd>A</kbd><small>공격</small></button>
         <button class="hk" data-key="h"><kbd>H</kbd><small>치유</small><i class="cd" id="cdH"></i></button>

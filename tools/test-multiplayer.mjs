@@ -83,7 +83,7 @@ A.send({ t: 'talk', npc: 'guard_s1' }); await sleep(7000);
 check(A.npc && A.npc.quests.some(q => q.id === 'minions' && q.st === 'avail'), 'guard offers the skeleton quest');
 A.send({ t: 'qaccept', npc: 'guard_s1', q: 'minions' }); await sleep(300); check(A.said('의뢰 수락'), 'quest accepted');
 A.send({ t: 'move', x: 88.5, y: 120.5 }); await sleep(7000);
-let kills = 0; for (let i = 0; i < 24 && !A.said('성문 밖의 해골들: 8/8'); i++) { const mon = [...A.ents.values()].filter(e => A.meta.get(e[0])?.[3] === 'skel_minion' && e[4] !== 4).sort((p, q) => Math.hypot(p[1] - A.pos()[0], p[2] - A.pos()[1]) - Math.hypot(q[1] - A.pos()[0], q[2] - A.pos()[1]))[0]; if (!mon) { A.send({ t: 'move', x: 88.5, y: 126.5 }); await sleep(4000); continue; } A.send({ t: 'attack', id: mon[0] }); for (let k = 0; k < 16; k++) { await sleep(400); if (A.evs.some(e => e.k === 'die' && e.id === mon[0])) { kills++; break; } } }
+let kills = 0; for (let i = 0; i < 40 && !A.said('성문 밖의 해골들: 8/8'); i++) { const mon = [...A.ents.values()].filter(e => A.meta.get(e[0])?.[3] === 'skel_minion' && e[4] !== 4).sort((p, q) => Math.hypot(p[1] - A.pos()[0], p[2] - A.pos()[1]) - Math.hypot(q[1] - A.pos()[0], q[2] - A.pos()[1]))[0]; if (!mon) { A.send({ t: 'move', x: 88.5, y: 126.5 }); await sleep(4000); continue; } A.send({ t: 'attack', id: mon[0] }); for (let k = 0; k < 16; k++) { await sleep(400); if (A.evs.some(e => e.k === 'die' && e.id === mon[0])) { kills++; break; } } }
 check(A.said('성문 밖의 해골들: 8/8'), `kill counter reaches 8 (${kills} kills seen)`);
 { const sc = A.inv.inv.findIndex(x => x.id === 'scroll'); A.send({ t: 'use', i: sc, id: 'scroll' }); await sleep(600); }
 A.send({ t: 'talk', npc: 'guard_s1' }); for (let i = 0; i < 25; i++) { await sleep(1000); if (A.npc && A.npc.id === 'guard_s1' && A.npc.quests.some(q => q.id === 'minions' && q.prog >= 8)) break; } const gq = A.inv.gold; A.send({ t: 'qdone', npc: 'guard_s1', q: 'minions' }); await sleep(400);
@@ -110,6 +110,33 @@ if (boss) { A.send({ t: 'attack', id: boss[0] }); for (let k = 0; k < 30; k++) {
 check(A.evs.some(e => e.k === 'fx' && e.fx === 'roar'), 'boss used its howl (summons)');
 check([...A.meta.values()].filter(m => m[3] === 'skel_minion').length > 0, 'summoned minions appeared');
 A.send({ t: 'skill2' }); await sleep(300); check(A.evs.some(e => e.k === 'fx' && e.fx === 'heal' && e.id === A.id) || A.said('마나') || A.said('대상'), 'second skill (smite) fires or reports a reason');
+
+// social: whisper, party exp share, party members cannot PK each other, trade
+B.ws.close(); await sleep(300); B = bot(rb.token); await B.ready; await sleep(700);
+A.send({ t: 'chat', msg: '/귓 도적베스 안녕' }); await sleep(300); check(B.chat.includes('안녕'), 'whisper delivered');
+A.send({ t: 'pinvite', name: '도적베스' }); await sleep(300); B.send({ t: 'paccept' }); await sleep(400);
+check(A.me[21] && A.me[21] === B.me[21], 'party formed (same party id)');
+A.send({ t: 'move', x: 88.5, y: 118.5 }); B.send({ t: 'move', x: 89.5, y: 118.5 }); await sleep(8000);
+A.send({ t: 'attack', id: B.id }); await sleep(300); check(A.said('공격할 수 없는'), 'party members cannot attack each other');
+const expB = B.me[5] + B.me[4] * 100000; let k2 = false; for (let i = 0; i < 8 && !k2; i++) { const mon = [...A.ents.values()].filter(e => A.meta.get(e[0])?.[1] === 2 && e[4] !== 4).sort((p, q) => Math.hypot(p[1] - A.pos()[0], p[2] - A.pos()[1]) - Math.hypot(q[1] - A.pos()[0], q[2] - A.pos()[1]))[0]; if (!mon) break; A.send({ t: 'attack', id: mon[0] }); for (let k = 0; k < 16; k++) { await sleep(400); if (A.evs.some(e => e.k === 'die' && e.id === mon[0])) { k2 = true; break; } } }
+await sleep(300); check(k2 && (B.me[5] + B.me[4] * 100000) > expB, 'party member nearby receives shared exp');
+// trade: A gives 2 potions + 50 gold, B gives 10 gold
+A.send({ t: 'stop' }); await sleep(200); A.send({ t: 'move', x: B.pos()[0] + 1, y: B.pos()[1] }); await sleep(2500);
+A.send({ t: 'trade', name: '도적베스' }); await sleep(300); B.send({ t: 'taccept' }); await sleep(400);
+const pA = A.inv.inv.findIndex(x => x.id === 'hpPotion'); const gA = A.inv.gold, gB = B.inv.gold; const nA = A.inv.inv[pA].n, nB = B.inv.inv.find(x => x.id === 'hpPotion')?.n || 0;
+A.send({ t: 'toffer', items: [pA], gold: 50 }); B.send({ t: 'toffer', items: [], gold: 10 }); await sleep(400);
+A.send({ t: 'tconfirm' }); await sleep(200); B.send({ t: 'tconfirm' }); await sleep(600);
+check(A.inv.gold === gA - 40 && B.inv.gold === gB + 40, `trade gold settled (A ${gA}->${A.inv.gold}, B ${gB}->${B.inv.gold})`);
+check(!A.inv.inv.some(x => x.id === 'hpPotion') && (B.inv.inv.find(x => x.id === 'hpPotion')?.n || 0) === nB + nA, 'trade items moved');
+// admin: first account is admin; notice, kick
+A.send({ t: 'chat', msg: '/공지 서버 점검 예정' }); await sleep(300); check(B.chat.includes('서버 점검 예정'), 'admin notice broadcast');
+B.send({ t: 'chat', msg: '/공지 나도' }); await sleep(300); check(B.said('관리자만'), 'non-admin cannot use admin commands');
+A.send({ t: 'chat', msg: '/차단 도적베스 10분 테스트' }); await sleep(600); check(B.said('차단되었습니다'), 'ban kicks the player');
+const B2 = bot(rb.token); await B2.ready; await sleep(400); check(B2.said('차단된 계정'), 'banned account cannot rejoin');
+A.send({ t: 'chat', msg: '/차단해제 도적베스' }); await sleep(300);
+const admin = await (await fetch(`http://127.0.0.1:${PORT}/api/admin?token=${r5.token}`)).json(); check(admin.recent.some(e => e.kind === 'ban') && admin.recent.some(e => e.kind === 'trade'), 'admin page lists ban and trade events');
+const adm403 = await fetch(`http://127.0.0.1:${PORT}/admin?token=${rb.token}`); check(adm403.status === 403, 'admin page refuses non-admins');
+B = bot(rb.token); await B.ready; await sleep(500);
 const health = await (await fetch(`http://127.0.0.1:${PORT}/health`)).json();
 check(health.players === 2 && health.monsters > 90, `health ${JSON.stringify(health)}`);
 check((await fetch(`http://127.0.0.1:${PORT}/`)).ok, 'client page is served');

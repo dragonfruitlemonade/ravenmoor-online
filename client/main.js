@@ -105,7 +105,8 @@ function drawStatic(o) { const im = img(o.m.file); if (!im) return; const [sx, s
 // ───────────────────────── entities
 const ents = new Map();   // id -> {id,kind,name,sprite,level,flag,maxHp,x,y,rx,ry,dir,st,hp,atkT,hitT,deadT,say,sayT}
 let myId = 0, me = null, meStats = null, online = 0;
-function entColor(e) { if (e.id === myId) return e.flag === 2 ? '#ff6a5a' : '#ffd86b'; if (e.kind === 1) return e.flag === 2 ? '#ff6a5a' : e.flag === 1 ? '#c99cff' : '#cfe2ff'; if (e.kind === 4) return '#a8e0a0'; return '#e8dcc0'; }
+const inParty = id => !!(party && party.id && party.members.some(mm => mm.id === id));
+function entColor(e) { if (e.id === myId) return e.flag === 2 ? '#ff6a5a' : '#ffd86b'; if (e.kind === 1) return inParty(e.id) ? '#8fe3a0' : e.flag === 2 ? '#ff6a5a' : e.flag === 1 ? '#c99cff' : '#cfe2ff'; if (e.kind === 4) return '#a8e0a0'; return '#e8dcc0'; }
 function charFrame(e, t) {
   const C = MF.characters[e.sprite]; if (!C) return null;
   let anim = 'idle', at = (t / 1000) % 100;
@@ -139,7 +140,29 @@ function drawEntity(e, t) {
 function headY(e) { const C = MF.characters[e.sprite]; return C ? C.ay * SC * .62 * (e.scale || 1) : 50; }
 
 // ───────────────────────── effects
-const floats = [], bolts = [], clicks = [], rings = [], tele = [], chainsFx = []; let hoverId = 0, dayPhase = 0, questMarks = {};
+const floats = [], bolts = [], clicks = [], rings = [], tele = [], chainsFx = []; let hoverId = 0, dayPhase = 0, questMarks = {}, party = null, isAdminUser = false, lastWhisper = null;
+function renderParty() {
+  const el = $('party'); if (!party || !party.id) { el.hidden = true; return; } el.hidden = false;
+  el.innerHTML = `<div class="ph">파티 <span class="ds">${party.members.length}/5</span> <button class="link" id="pleave">나가기</button></div>` + party.members.map(mm => `<div class="pm${mm.id === myId ? ' me' : ''}${mm.id === party.leader ? ' lead' : ''}"><span class="nm">${mm.id === party.leader ? '★ ' : ''}${esc(mm.name)} <small>Lv${mm.level}</small></span><div class="bar hp"><i style="width:${100 * mm.hp / mm.maxHp}%"></i></div></div>`).join('');
+  $('pleave').onclick = () => send({ t: 'pleave' });
+}
+function showInvite(m) {
+  const box = $('invites'); const d = document.createElement('div'); d.className = 'panel invite';
+  d.innerHTML = `<span>${esc(m.from)}님의 ${m.kind === 'party' ? '파티' : '거래'} 요청</span><button class="btn" data-a="ok">수락</button><button class="btn" data-a="no">거절</button>`;
+  d.querySelector('[data-a=ok]').onclick = () => { send({ t: m.kind === 'party' ? 'paccept' : 'taccept' }); d.remove(); }; d.querySelector('[data-a=no]').onclick = () => d.remove();
+  box.appendChild(d); setTimeout(() => d.remove(), m.kind === 'party' ? 60000 : 30000); sfx.quest();
+}
+function showNotice(text) { const n = $('notice'); n.textContent = text; n.hidden = false; clearTimeout(showNotice.t); showNotice.t = setTimeout(() => n.hidden = true, 8000); }
+let ctxMenu = null;
+function playerMenu(e, px, py) {
+  closeMenu(); const d = document.createElement('div'); d.className = 'panel ctxmenu'; d.style.left = px + 'px'; d.style.top = py + 'px';
+  const items = [['귓속말', () => { $('chatin').value = `/귓 ${e.name} `; $('chatin').focus(); }], ['파티 초대', () => send({ t: 'pinvite', name: e.name })], ['거래', () => send({ t: 'trade', name: e.name })], ['공격', () => { targetId = e.id; send({ t: 'attack', id: e.id }); }]];
+  d.innerHTML = `<div class="ct">${esc(e.name)}</div>` + items.map(([l]) => `<button class="mi">${l}</button>`).join('');
+  [...d.querySelectorAll('.mi')].forEach((b, i) => b.onclick = () => { items[i][1](); closeMenu(); });
+  document.body.appendChild(d); ctxMenu = d;
+}
+function closeMenu() { if (ctxMenu) { ctxMenu.remove(); ctxMenu = null; } }
+addEventListener('pointerdown', ev => { if (ctxMenu && !ctxMenu.contains(ev.target)) closeMenu(); });
 
 // ───────────────────────── networking
 let ws = null, connected = false;
@@ -157,7 +180,11 @@ function onMsg(m) {
   if (m.t === 'npc') { ui.openNpc(m); return; }
   if (m.t === 'npcclose') { ui.closeNpc(); return; }
   if (m.t === 'quests') { ui.setQuests(m.q); return; }
-  if (m.t === 'welcome') { myId = m.id; $('join').hidden = true; $('hud').hidden = false; $('pname').textContent = m.name; addLog(`${m.name}님, 레이븐무어에 오신 것을 환영합니다. 성문은 동서남북 네 곳에 있습니다. 상인·스승·마을 사람은 이름을 눌러 말을 걸 수 있습니다.`, 'sys'); return; }
+  if (m.t === 'party') { party = m; renderParty(); return; }
+  if (m.t === 'trade') { ui.setTrade(m); return; }
+  if (m.t === 'leaderboard') { ui.setBoard(m.rows); return; }
+  if (m.t === 'invite') { showInvite(m); return; }
+  if (m.t === 'welcome') { myId = m.id; isAdminUser = !!m.admin; if (isAdminUser) $('adminLink').hidden = false; $('join').hidden = true; $('hud').hidden = false; $('pname').textContent = m.name; addLog(`${m.name}님, 레이븐무어에 오신 것을 환영합니다. 성문은 동서남북 네 곳에 있습니다. 상인·스승·마을 사람은 이름을 눌러 말을 걸 수 있습니다.`, 'sys'); return; }
   if (m.t === 'snap') {
     for (const [id, kind, name, sprite, level, flag, maxHp, extra, scale, boss] of m.m) { const e = ents.get(id) || { id, atkT: -1e9, hitT: -1e9, deadT: 0, rx: null }; Object.assign(e, { kind, name, sprite, level, flag, maxHp, extra, scale: scale || 1, boss: !!boss }); ents.set(id, e); }
     dayPhase = m.day || 0; questMarks = m.qm || {};
@@ -189,7 +216,8 @@ function onMsg(m) {
     }
     return;
   }
-  if (m.t === 'chat') { if (m.sys) { addLog(m.msg, 'sys'); if (/의뢰 (수락|완료)|주웠습니다/.test(m.msg)) sfx[/주웠/.test(m.msg) ? (/금화/.test(m.msg) ? 'coin' : 'pickup') : 'quest'](); else if (/가득|부족|없습니다|없어|않습니다|없는/.test(m.msg)) sfx.deny(); } else { addLog(`<b>${esc(m.n)}</b> ${esc(m.msg)}`, m.id === myId ? 'me' : ''); const e = ents.get(m.id); if (e) { e.say = m.msg; e.sayT = t; } } }
+  if (m.t === 'chat') { if (m.notice) { addLog('📣 ' + esc(m.msg), 'notice'); sfx.bell(); showNotice(m.msg); return; } if (m.whisper) { addLog(`<b class="wn">${m.to ? '→ ' + esc(m.to) : esc(m.n)}</b> ${esc(m.msg)}`, 'whisper'); if (!m.to) { lastWhisper = m.n; sfx.pickup(); } return; } if (m.party) { addLog(`<b class="pn">[파티] ${esc(m.n)}</b> ${esc(m.msg)}`, 'party'); return; } if (m.all) { addLog(`<b class="an">[전체] ${esc(m.n)}</b> ${esc(m.msg)}`, 'all'); return; }
+    if (m.sys) { addLog(m.msg, 'sys'); if (/의뢰 (수락|완료)|주웠습니다/.test(m.msg)) sfx[/주웠/.test(m.msg) ? (/금화/.test(m.msg) ? 'coin' : 'pickup') : 'quest'](); else if (/가득|부족|없습니다|없어|않습니다|없는/.test(m.msg)) sfx.deny(); } else { addLog(`<b>${esc(m.n)}</b> ${esc(m.msg)}`, m.id === myId ? 'me' : ''); const e = ents.get(m.id); if (e) { e.say = m.msg; e.sayT = t; } } }
 }
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 function addLog(html, cls) { const d = document.createElement('div'); d.className = cls || ''; d.innerHTML = html; const L = $('log'); L.appendChild(d); while (L.children.length > 40) L.firstChild.remove(); }
@@ -202,8 +230,9 @@ function pickEntity(px, py) {
   for (const e of ents.values()) { if (e.id === myId || e.st === 4 || e.rx === null) continue; const [sx, sy] = toS(e.rx, e.ry); const x = (sx - cam.x) * zoom + VW / 2, y = (sy - cam.y) * zoom + VH / 2; const drop = e.kind === 3; const scl = e.scale || 1; const dx = px - x, dy = py - (y - (drop ? 10 : 26 * scl) * zoom); if (Math.abs(dx) < (drop ? 15 : 20 * scl) * zoom && Math.abs(dy) < (drop ? 14 : 32 * scl) * zoom) { const d = dx * dx + dy * dy - (drop ? 200 : 0); if (d < bd) { bd = d; best = e; } } }
   return best;
 }
+canvas.addEventListener('contextmenu', ev => { ev.preventDefault(); if (!myId) return; const e = pickEntity(ev.clientX, ev.clientY); if (e && e.kind === 1) playerMenu(e, ev.clientX, ev.clientY); });
 canvas.addEventListener('pointerdown', ev => {
-  if (!myId) return; $('chatin').blur();
+  if (!myId || ev.button === 2) return; $('chatin').blur();
   const e = pickEntity(ev.clientX, ev.clientY);
   if (e) { if (e.kind === 3) { send({ t: 'pick', id: e.id }); return; } if (e.kind === 4) { send({ t: 'talk', npc: e.extra }); return; } targetId = e.id; send({ t: 'attack', id: e.id }); return; }
   const [x, y] = screenToTile(ev.clientX, ev.clientY); targetId = 0; send({ t: 'move', x, y }); clicks.push({ x, y, t0: performance.now() });
@@ -221,6 +250,8 @@ addEventListener('keydown', ev => {
   else if (k === 'd') send({ t: 'skill2' });
   else if (k === 'm') { const mu = toggleMute(); addLog(mu ? '소리를 껐습니다.' : '소리를 켰습니다.', 'sys'); $('muteBtn').querySelector('small').textContent = mu ? '음소거' : '소리'; }
   else if (k === 'q') { ui.toggle('quest'); send({ t: 'quests' }); }
+  else if (k === 'l') send({ t: 'leaderboard' });
+  else if (k === 'r' && lastWhisper) { $('chatin').value = `/귓 ${lastWhisper} `; $('chatin').focus(); ev.preventDefault(); }
   else if (k === '1' || k === '2' || k === '3') { const id = { 1: 'hpPotion', 2: 'mpPotion', 3: 'scroll' }[k]; const i = ui.firstOf(id); if (i >= 0) send({ t: 'use', i, id }); else addLog(`${ITEMS[id].name}이(가) 없습니다.`, 'sys'); }
   else if (k === 'i') ui.toggle('inv'); else if (k === 'e') ui.toggle('eq'); else if (k === 'c') ui.toggle('char');
   else if (k === 'z' && me) { let best = null, bd = 6; for (const d of ents.values()) { if (d.kind !== 3) continue; const dd = Math.hypot(d.x - me.x, d.y - me.y); if (dd < bd) { bd = dd; best = d; } } if (best) send({ t: 'pick', id: best.id }); else addLog('근처에 주울 것이 없습니다.', 'sys'); }
@@ -262,6 +293,7 @@ const ui = createUI({ MF, send: o => send(o), log: addLog });
       initAudio(); connect(j.token);
     } catch (err) { $('jerr').textContent = err.message; $('jbtn').disabled = false; }
   });
+  $('adminLink').onclick = () => { let tk = ''; try { tk = localStorage.getItem('rm-token') || ''; } catch {} window.open('/admin?token=' + encodeURIComponent(tk), '_blank'); };
   $('logout').onclick = async () => { let tk = null; try { tk = localStorage.getItem('rm-token'); localStorage.removeItem('rm-token'); } catch {} if (tk) await fetch('/api/logout', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ token: tk }) }); location.reload(); };
   for (const b of document.querySelectorAll('#hotbar [data-key]')) b.addEventListener('click', () => dispatchEvent(new KeyboardEvent('keydown', { key: b.dataset.key })));
 }
@@ -272,7 +304,7 @@ const mmBase = document.createElement('canvas'); mmBase.width = MAP; mmBase.heig
 const mm = $('minimap').getContext('2d');
 function drawMinimap() {
   mm.imageSmoothingEnabled = false; mm.drawImage(mmBase, 0, 0, 160, 160); const k = 160 / MAP;
-  for (const e of ents.values()) { if (e.st === 4 || e.rx === null || e.kind === 3) continue; if (e.kind === 4) { mm.fillStyle = '#a8e0a0'; mm.fillRect(e.rx * k - 1, e.ry * k - 1, 2, 2); continue; } mm.fillStyle = e.id === myId ? '#ffd86b' : e.kind === 1 ? (e.flag === 2 ? '#ff5a4a' : '#7ab4ff') : '#d03a2a'; const r = e.id === myId ? 3 : 1.6; mm.beginPath(); mm.arc(e.rx * k, e.ry * k, r, 0, 7); mm.fill(); }
+  for (const e of ents.values()) { if (e.st === 4 || e.rx === null || e.kind === 3) continue; if (e.kind === 4) { mm.fillStyle = '#a8e0a0'; mm.fillRect(e.rx * k - 1, e.ry * k - 1, 2, 2); continue; } mm.fillStyle = e.id === myId ? '#ffd86b' : e.kind === 1 ? (inParty(e.id) ? '#8fe3a0' : e.flag === 2 ? '#ff5a4a' : '#7ab4ff') : '#d03a2a'; const r = e.id === myId ? 3 : 1.6; mm.beginPath(); mm.arc(e.rx * k, e.ry * k, r, 0, 7); mm.fill(); }
 }
 
 // ───────────────────────── HUD
