@@ -1,0 +1,105 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Sprite Baker</title></head>
+<body style="margin:0;background:#222">
+<script type="importmap">{"imports":{"three":"/tools/vendor/three/build/three.module.js","three/addons/":"/tools/vendor/three/examples/jsm/"}}</script>
+<script type="module">
+// Renders 3D models into isometric sprite images.
+// Camera: orthographic, yaw 45°, pitch from config. 1 world unit on the ground = 64 CSS px tile width at 2x native.
+import * as THREE from 'three';
+import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
+import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
+
+const loader=new GLTFLoader();
+const renderer=new THREE.WebGLRenderer({antialias:true,alpha:true,preserveDrawingBuffer:true});
+renderer.outputColorSpace=THREE.SRGBColorSpace;renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1.05;
+renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;renderer.setPixelRatio(1);
+document.body.appendChild(renderer.domElement);
+
+let CFG;
+function makeScene(){
+  const s=new THREE.Scene();
+  s.add(new THREE.HemisphereLight(0xfff4e2,0x4a4030,1.15));
+  const sun=new THREE.DirectionalLight(0xfff0d6,2.6);
+  // light from the upper-left of the screen: camera-left is (-1,0,1)/√2
+  sun.position.set(-4.2+1.2,7,4.2+1.2);sun.castShadow=true;sun.shadow.mapSize.set(2048,2048);
+  const sc=sun.shadow.camera;sc.left=-6;sc.right=6;sc.top=6;sc.bottom=-6;sc.near=.1;sc.far=30;sun.shadow.bias=-0.0006;sun.shadow.radius=3;
+  s.add(sun);s.add(sun.target);
+  const fill=new THREE.DirectionalLight(0xb8c8ff,.45);fill.position.set(5,3,-2);s.add(fill);
+  const ground=new THREE.Mesh(new THREE.PlaneGeometry(30,30),new THREE.ShadowMaterial({opacity:.38}));
+  ground.rotation.x=-Math.PI/2;ground.receiveShadow=true;s.add(ground);
+  return s;
+}
+function makeCamera(){
+  const p=CFG.pitchDeg*Math.PI/180;
+  const cam=new THREE.OrthographicCamera(-1,1,1,-1,0.1,200);
+  cam.position.set(Math.cos(p)*Math.SQRT1_2*60,Math.sin(p)*60,Math.cos(p)*Math.SQRT1_2*60);
+  cam.lookAt(0,0,0);cam.updateMatrixWorld();
+  return cam;
+}
+function frameCamera(cam,l,r,t,b){cam.left=l;cam.right=r;cam.top=t;cam.bottom=b;cam.updateProjectionMatrix();
+  const w=Math.round((r-l)*CFG.ppu),h=Math.round((t-b)*CFG.ppu);renderer.setSize(w,h,false);return[w,h];}
+function shadowsOn(obj){obj.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveShadow=true;if(o.material){o.material.side=THREE.FrontSide;}}});}
+function snap(){return renderer.domElement.toDataURL('image/png');}
+function viewBounds(cam,obj){
+  const box=new THREE.Box3().setFromObject(obj);const pts=[];
+  for(const x of [box.min.x,box.max.x])for(const y of [box.min.y,box.max.y])for(const z of [box.min.z,box.max.z])pts.push(new THREE.Vector3(x,y,z));
+  // shadow footprint: light shines from (-3,7,5.4), so shadows fall toward (+0.43,-0.77) per unit of height
+  const h=box.max.y;for(const x of [box.min.x,box.max.x])for(const z of [box.min.z,box.max.z])pts.push(new THREE.Vector3(x+h*.43,0,z-h*.77));
+  let l=1e9,r=-1e9,t=-1e9,b=1e9;
+  for(const p of pts){p.applyMatrix4(cam.matrixWorldInverse);l=Math.min(l,p.x);r=Math.max(r,p.x);t=Math.max(t,p.y);b=Math.min(b,p.y);}
+  const m=.06;return[l-m,r+m,t+m,b-m,box];
+}
+function anchorPx(cam,l,t){const o=new THREE.Vector3(0,0,0).applyMatrix4(cam.matrixWorldInverse);return[Math.round((o.x-l)*CFG.ppu),Math.round((t-o.y)*CFG.ppu)];}
+
+async function bakeStatic(item){
+  const s=makeScene(),cam=makeCamera();
+  const g=await loader.loadAsync('/'+item.path);const obj=g.scene;
+  obj.scale.setScalar(item.scale||1);obj.rotation.y=(item.rot||0)*Math.PI/180;shadowsOn(obj);s.add(obj);obj.updateMatrixWorld(true);
+  const [l,r,t,b,box]=viewBounds(cam,obj);const [w,h]=frameCamera(cam,l,r,t,b);
+  renderer.render(s,cam);const [ax,ay]=anchorPx(cam,l,t);
+  const size=box.getSize(new THREE.Vector3());
+  return{key:item.key,png:snap(),w,h,ax,ay,foot:[+size.x.toFixed(2),+size.z.toFixed(2)],height:+size.y.toFixed(2)};
+}
+
+let animLib=null;
+async function bakeCharacter(item){
+  const g=await loader.loadAsync('/'+item.file);
+  const s=makeScene(),cam=makeCamera();
+  const obj=g.scene;obj.scale.setScalar(item.scale||1);shadowsOn(obj);s.add(obj);
+  const visible=[];obj.traverse(o=>{if(item.hide&&item.hide.some(h=>o.name===h||o.name.startsWith(h+'_')||o.name.startsWith(h+'.')))o.visible=false;if(o.isMesh&&o.visible)visible.push(o.name);});
+  const clips=[...g.animations,...(animLib||[])];
+  const findClip=spec=>{for(const n of spec.split('|')){const c=clips.find(c=>c.name===n);if(c)return c;}return null;};
+  const F=CFG.characterFrame;const [w,h]=frameCamera(cam,F.left,F.right,F.top,F.bottom);const [ax,ay]=anchorPx(cam,F.left,F.top);
+  const mixer=new THREE.AnimationMixer(obj);
+  const out={key:item.key,w,h,ax,ay,anims:{},sheets:{},visible};
+  const sheet=document.createElement('canvas');const sg=sheet.getContext('2d');
+  for(const [name,[spec,frames]] of Object.entries(item.anims)){
+    const clip=findClip(spec);if(!clip){out.anims[name]={missing:spec};continue;}
+    sheet.width=w*frames;sheet.height=h*8;sg.clearRect(0,0,sheet.width,sheet.height);
+    mixer.stopAllAction();const act=mixer.clipAction(clip);act.reset();act.play();
+    const loop=name!=='death'&&name!=='attack'&&name!=='hit';
+    for(let d=0;d<8;d++){
+      obj.rotation.y=d*Math.PI/4;
+      for(let f=0;f<frames;f++){
+        const tt=loop?clip.duration*f/frames:clip.duration*Math.min(1,(f+1)/frames)*0.999;
+        mixer.setTime(tt);obj.updateMatrixWorld(true);renderer.render(s,cam);
+        sg.drawImage(renderer.domElement,f*w,d*h);
+      }
+    }
+    out.anims[name]={frames,clip:clip.name,dur:+clip.duration.toFixed(3),loop};
+    out.sheets[name]=sheet.toDataURL('image/png');
+  }
+  return out;
+}
+
+window.bakeAll=async(cfg,only)=>{
+  CFG=cfg;
+  if(cfg.animSource){const g=await loader.loadAsync('/'+cfg.animSource);animLib=g.animations;}
+  const res={characters:[],statics:[]};
+  for(const c of cfg.characters){if(only&&!only.includes(c.key))continue;res.characters.push(await bakeCharacter(c));}
+  for(const st of cfg.statics){if(only&&!only.includes(st.key))continue;res.statics.push(await bakeStatic(st));}
+  return res;
+};
+window.READY=true;
+</script>
+</body></html>

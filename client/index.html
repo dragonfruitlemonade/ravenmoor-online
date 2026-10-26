@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Ravenmoor Online</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Noto+Sans+KR:wght@400;500;700&display=swap">
+<link rel="stylesheet" href="/client/style.css">
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<div id="hud" hidden>
+  <div class="top">
+    <div class="panel status">
+      <div class="nm"><span id="pname"></span><small>Lv <b id="plv">1</b></small></div>
+      <div class="bar hp"><i id="hpb"></i><span id="hpt"></span></div>
+      <div class="bar mp"><i id="mpb"></i><span id="mpt"></span></div>
+      <div class="bar xp"><i id="xpb"></i><span id="xpt"></span></div>
+      <div class="row"><span>금화 <b id="gold">0</b></span><span id="align"></span></div>
+    </div>
+    <div class="panel zone" id="zone"><span class="z">Ravenmoor</span><span id="zonet"></span><span id="online"></span></div>
+    <div class="panel mm"><canvas id="minimap" width="160" height="160"></canvas></div>
+  </div>
+  <div class="panel target" id="target" hidden><div class="tn"><span id="tname"></span><em id="tlv"></em></div><div class="bar hp"><i id="thpb"></i></div></div>
+  <div class="bottom">
+    <div class="chat">
+      <div id="log"></div>
+      <form id="chatform" autocomplete="off"><input id="chatin" maxlength="120" placeholder="Enter 키로 대화"></form>
+    </div>
+    <div class="keys"><kbd>클릭</kbd> 이동 · 적 클릭 공격 <kbd>A</kbd> 가까운 적 <kbd>Esc</kbd> 멈춤 <kbd>Enter</kbd> 대화</div>
+  </div>
+</div>
+
+<div id="join">
+  <form class="panel joinbox" id="joinform" autocomplete="off">
+    <h1>Ravenmoor Online</h1>
+    <p class="sub">레이븐무어 · 성벽 안은 안전, 성문 밖은 무법지대</p>
+    <label for="jname">이름</label>
+    <input id="jname" maxlength="10" placeholder="한글·영문 2~10자" required>
+    <label>외형</label>
+    <div class="looks" id="looks"></div>
+    <button type="submit" id="jbtn">입장</button>
+    <p class="err" id="jerr"></p>
+    <p class="note">같은 이름으로 다시 들어오면 레벨과 금화가 이어집니다.</p>
+  </form>
+</div>
+<div id="dead" hidden>쓰러졌습니다…</div>
+<script type="module" src="/client/main.js"></script>
+</body>
+</html>

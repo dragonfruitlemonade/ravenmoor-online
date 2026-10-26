@@ -1,0 +1,17 @@
+<!doctype html><html><body style="margin:0;background:#0000">
+<script type="importmap">{"imports":{"three":"/vendor/three/build/three.module.js","three/addons/":"/vendor/three/examples/jsm/"}}</script>
+<script type="module">
+import * as THREE from 'three';
+import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
+const r=new THREE.WebGLRenderer({antialias:true,alpha:true,preserveDrawingBuffer:true});r.setSize(512,512);document.body.appendChild(r.domElement);
+r.outputColorSpace=THREE.SRGBColorSpace;r.shadowMap.enabled=true;
+const s=new THREE.Scene();
+const cam=new THREE.OrthographicCamera(-1.4,1.4,1.4,-1.4,0.1,50);
+const el=Math.atan(Math.sin(Math.PI/6));cam.position.set(6*Math.cos(el)*Math.SQRT1_2,6*Math.sin(Math.PI/6)*1.15,6*Math.cos(el)*Math.SQRT1_2);cam.lookAt(0,0.9,0);
+s.add(new THREE.HemisphereLight(0xfff2dd,0x3a3020,1.1));const d=new THREE.DirectionalLight(0xfff0d8,2.4);d.position.set(-3,6,2);s.add(d);
+const g=await new GLTFLoader().loadAsync(location.hash.slice(1));
+s.add(g.scene);
+window.ANIMS=g.animations.map(a=>a.name+':'+a.duration.toFixed(2));
+const mix=new THREE.AnimationMixer(g.scene);const clip=g.animations.find(a=>/walk/i.test(a.name))||g.animations[0];if(clip){mix.clipAction(clip).play();mix.update(0.3);}
+r.render(s,cam);window.DONE=true;
+</script></body></html>
