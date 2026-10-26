@@ -41,10 +41,11 @@ function canFight(a, b) {
 }
 
 // ── world population
-function spawnMonster(type, sx, sy) {
+function spawnMonster(type, sx, sy, elite) {
   const m = MONSTERS[type];
   const e = { id: nextId++, kind: 'monster', type, sprite: m.sprite || type, scale: m.scale || 1, boss: !!m.boss, name: m.name, level: m.level, x: sx, y: sy, sx, sy, hp: m.hp, maxHp: m.hp, atk: m.atk, def: m.def, speed: m.speed,
     range: m.ranged || (m.boss ? 1.7 : 1.45), ranged: !!m.ranged, atkSpeed: m.boss ? 1400 : 1300, cd: 0, path: null, pathT: 0, target: null, dir: Math.floor(R() * 8), dead: false, metaVer: 1, wanderT: 0, stunT: 0, fx: {}, sk: {} };
+  if (elite) { e.elite = true; e.name = '정예 ' + m.name; e.level += 2; e.maxHp = e.hp = Math.round(m.hp * 2.2); e.atk = Math.round(m.atk * 1.4); e.def = Math.round(m.def * 1.3); e.scale = 1.25; }
   ents.set(e.id, e); return e;
 }
 function freeTileIn(ring, r) {
@@ -52,7 +53,7 @@ function freeTileIn(ring, r) {
   for (let i = 0; i < 4000; i++) { const x = 3 + Math.floor(r() * (MAP - 6)), y = 3 + Math.floor(r() * (MAP - 6)); const d = Math.max(Math.abs(x + .5 - c), Math.abs(y + .5 - c)); if (d < ring[0] || d > ring[1] || W.monsterBlock[y * MAP + x]) continue; return [x + .5, y + .5]; }
   return [20.5, 20.5];
 }
-{ const r = rng(7); for (const [type, m] of Object.entries(MONSTERS)) for (let i = 0; i < m.count; i++) { const [x, y] = m.fixed ? m.fixed : freeTileIn(m.ring, r); spawnMonster(type, x, y); } }
+{ const r = rng(7); for (const [type, m] of Object.entries(MONSTERS)) for (let i = 0; i < m.count; i++) { const [x, y] = m.fixed ? m.fixed : freeTileIn(m.ring, r); spawnMonster(type, x, y, !m.boss && i % 12 === 11); } }
 const npcById = {};
 for (const n of NPCS) { const e = { ...n, npcId: n.id, id: nextId++, kind: 'npc', level: 0, hp: 1, maxHp: 1, dir: n.guard ? 0 : 1, metaVer: 1, speed: 1.6, path: null, wanderT: 0, fx: {} }; ents.set(e.id, e); npcById[n.id] = e; }
 function villagerAI(e, dt) { if (!e.path) { e.moving = false; if (now() > e.wanderT) { e.wanderT = now() + 3000 + R() * 7000; const a = e.area; const tx = a[0] + Math.floor(R() * a[2]), ty = a[1] + Math.floor(R() * a[3]); if (!W.block[ty * MAP + tx]) setPath(e, tx + .5, ty + .5); } } step(e, dt); }
@@ -133,10 +134,11 @@ function kill(b, a) {
     const m = MONSTERS[b.type]; b.respawnAt = b.temp ? Infinity : now() + (m.respawn || 20000); b.cast = null; b.charging = null;
     if (b.temp) setTimeout(() => ents.delete(b.id), 3000);
     if (isPlayer(a)) {
-      const g = m.gold[0] + Math.floor(R() * (m.gold[1] - m.gold[0] + 1));
+      const mul = b.elite ? 3 : 1; const g = (m.gold[0] + Math.floor(R() * (m.gold[1] - m.gold[0] + 1))) * mul;
       spawnDrop(b.x, b.y, null, g, a);
-      for (const [id, p] of DROPS[b.type] || []) if (R() < p) spawnDrop(b.x, b.y, { id, n: 1, enh: 0 }, 0, a);
-      social.shareExp(a, m.exp, gainExp); questKill(a, b.type);
+      for (const [id, p] of DROPS[b.type] || []) if (R() < p * (b.elite ? 2 : 1)) spawnDrop(b.x, b.y, { id, n: 1, enh: 0 }, 0, a);
+      if (b.elite && R() < .25) spawnDrop(b.x, b.y, { id: ['ironHelm', 'chainMail', 'silverRing', 'longSword', 'ironShield'][Math.floor(R() * 5)], n: 1, enh: 1 + Math.floor(R() * 3) }, 0, a);
+      social.shareExp(a, m.exp * mul, gainExp); questKill(a, b.type);
       if (social.partyOf(a)) for (const mm of social.partyOf(a).members) if (mm !== a && !mm.dead && dist(mm, a) <= 22) questKill(mm, b.type);
       if (m.boss) broadcastAll({ t: 'chat', sys: true, msg: `👑 ${a.name}이(가) ${m.name}을(를) 쓰러뜨렸습니다!` });
     }
@@ -352,7 +354,7 @@ setInterval(() => {
 
 function meta(e) {
   const flag = isPlayer(e) ? (e.align < 0 ? 2 : e.flagT > now() ? 1 : 0) : 0;
-  return [e.id, KIND[e.kind], e.name, e.sprite, e.level || 0, flag, e.maxHp, isPlayer(e) ? e.cls : (e.npcId || ''), e.scale || 1, e.boss ? 1 : 0];
+  return [e.id, KIND[e.kind], e.name, e.sprite, e.level || 0, flag, e.maxHp, isPlayer(e) ? e.cls : (e.npcId || ''), e.scale || 1, e.boss ? 1 : e.elite ? 2 : 0];
 }
 function snapshot(c) {
   const p = c.player; const seen = new Set(); const list = [], metas = [];
@@ -389,6 +391,8 @@ export function onConnection(sock) {
       applyStats(pl, true); ents.set(pl.id, pl); c.player = pl; online.set(acc, pl);
       pl.admin = isAdmin(pl.name); sock.send(JSON.stringify({ t: 'welcome', id: pl.id, name: pl.name, admin: pl.admin })); sendInv(pl); logEvent('login', pl.name, null, (c.sock.sock.remoteAddress || ''));
       broadcastAll({ t: 'chat', sys: true, msg: `${pl.name}님이 레이븐무어에 들어왔습니다. (접속 ${online.size}명)` });
+      const alive = [...ents.values()].filter(e => isMonster(e) && e.boss && !e.dead).map(e => e.name); if (alive.length) sys(pl, `지금 깨어 있는 보스: ${alive.join(', ')}`);
+      if (online.size > 1) sys(pl, `접속 중: ${[...online.values()].filter(x => x !== pl).map(x => x.name).join(', ')}`);
       return;
     }
     if (!p) return;
