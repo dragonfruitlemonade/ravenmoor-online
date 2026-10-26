@@ -154,15 +154,15 @@ function renderParty() {
 }
 function showInvite(m) {
   const box = $('invites'); const d = document.createElement('div'); d.className = 'panel invite';
-  d.innerHTML = `<span>${esc(m.from)}님의 ${m.kind === 'party' ? '파티' : '거래'} 요청</span><button class="btn" data-a="ok">수락</button><button class="btn" data-a="no">거절</button>`;
-  d.querySelector('[data-a=ok]').onclick = () => { send({ t: m.kind === 'party' ? 'paccept' : 'taccept' }); d.remove(); }; d.querySelector('[data-a=no]').onclick = () => d.remove();
+  d.innerHTML = `<span>${esc(m.from)}님의 ${m.kind === 'party' ? '파티' : m.kind === 'guild' ? `길드 「${esc(m.guild)}」 가입` : '거래'} 요청</span><button class="btn" data-a="ok">수락</button><button class="btn" data-a="no">거절</button>`;
+  d.querySelector('[data-a=ok]').onclick = () => { send({ t: m.kind === 'party' ? 'paccept' : m.kind === 'guild' ? 'gaccept' : 'taccept' }); d.remove(); }; d.querySelector('[data-a=no]').onclick = () => d.remove();
   box.appendChild(d); setTimeout(() => d.remove(), m.kind === 'party' ? 60000 : 30000); sfx.quest();
 }
 function showNotice(text) { const n = $('notice'); n.textContent = text; n.hidden = false; clearTimeout(showNotice.t); showNotice.t = setTimeout(() => n.hidden = true, 8000); }
 let ctxMenu = null;
 function playerMenu(e, px, py) {
   closeMenu(); const d = document.createElement('div'); d.className = 'panel ctxmenu'; d.style.left = px + 'px'; d.style.top = py + 'px';
-  const items = [['귓속말', () => { $('chatin').value = `/귓 ${e.name} `; $('chatin').focus(); }], ['파티 초대', () => send({ t: 'pinvite', name: e.name })], ['거래', () => send({ t: 'trade', name: e.name })], ['공격', () => { targetId = e.id; send({ t: 'attack', id: e.id }); }]];
+  const items = [['귓속말', () => { $('chatin').value = `/귓 ${e.name} `; $('chatin').focus(); }], ['파티 초대', () => send({ t: 'pinvite', name: e.name })], ['길드 초대', () => send({ t: 'ginvite', name: e.name })], ['거래', () => send({ t: 'trade', name: e.name })], ['공격', () => { targetId = e.id; send({ t: 'attack', id: e.id }); }]];
   d.innerHTML = `<div class="ct">${esc(e.name)}</div>` + items.map(([l]) => `<button class="mi">${l}</button>`).join('');
   [...d.querySelectorAll('.mi')].forEach((b, i) => b.onclick = () => { items[i][1](); closeMenu(); });
   document.body.appendChild(d); ctxMenu = d;
@@ -191,13 +191,14 @@ function onMsg(m) {
   if (m.t === 'npcclose') { ui.closeNpc(); return; }
   if (m.t === 'quests') { ui.setQuests(m.q); return; }
   if (m.t === 'party') { party = m; renderParty(); return; }
+  if (m.t === 'guild') { ui.state.guild = m.id ? m : null; if (m.show) ui.show('guild'); else ui.render('guild'); return; }
   if (m.t === 'trade') { ui.setTrade(m); return; }
   if (m.t === 'leaderboard') { ui.setBoard(m.rows); return; }
   if (m.t === 'invite') { showInvite(m); return; }
   if (m.t === 'pong') { latency = Math.round(performance.now() - m.c); return; }
   if (m.t === 'welcome') { reconnect.tries = 0; $('reconn').hidden = true; if (myId) { addLog('다시 연결되었습니다.', 'sys'); } myId = m.id; isAdminUser = !!m.admin; if (isAdminUser) $('adminLink').hidden = false; $('join').hidden = true; $('hud').hidden = false; $('pname').textContent = m.name; addLog(`${m.name}님, 레이븐무어에 오신 것을 환영합니다. 성문은 동서남북 네 곳에 있습니다. 상인·스승·마을 사람은 이름을 눌러 말을 걸 수 있습니다.`, 'sys'); return; }
   if (m.t === 'snap') {
-    for (const [id, kind, name, sprite, level, flag, maxHp, extra, scale, boss] of m.m) { const e = ents.get(id) || { id, atkT: -1e9, hitT: -1e9, deadT: 0, rx: null }; Object.assign(e, { kind, name, sprite, level, flag, maxHp, extra, scale: scale || 1, boss: boss === 1, elite: boss === 2 }); ents.set(id, e); }
+    for (const [id, kind, name, sprite, level, flag, maxHp, extra, scale, boss, guild] of m.m) { const e = ents.get(id) || { id, atkT: -1e9, hitT: -1e9, deadT: 0, rx: null }; Object.assign(e, { kind, name, sprite, level, flag, maxHp, extra, scale: scale || 1, boss: boss === 1, elite: boss === 2, guild: guild || '' }); ents.set(id, e); }
     dayPhase = m.day || 0; questMarks = m.qm || {};
     for (const [id, x, y, dir, st, hp, sf] of m.e) { const e = ents.get(id); if (!e) continue; if (e.rx === null || Math.hypot(e.rx - x, e.ry - y) > 4) { e.rx = x; e.ry = y; } if (st === 4 && e.st !== 4) e.deadT = t; Object.assign(e, { x, y, dir, st, hp, sf }); }
     for (const id of m.g) ents.delete(id);
@@ -227,7 +228,7 @@ function onMsg(m) {
     }
     return;
   }
-  if (m.t === 'chat') { if (m.notice) { addLog('📣 ' + esc(m.msg), 'notice'); sfx.bell(); showNotice(m.msg); return; } if (m.whisper) { addLog(`<b class="wn">${m.to ? '→ ' + esc(m.to) : esc(m.n)}</b> ${esc(m.msg)}`, 'whisper'); if (!m.to) { lastWhisper = m.n; sfx.pickup(); } return; } if (m.party) { addLog(`<b class="pn">[파티] ${esc(m.n)}</b> ${esc(m.msg)}`, 'party'); return; } if (m.all) { addLog(`<b class="an">[전체] ${esc(m.n)}</b> ${esc(m.msg)}`, 'all'); return; }
+  if (m.t === 'chat') { if (m.notice) { addLog('📣 ' + esc(m.msg), 'notice'); sfx.bell(); showNotice(m.msg); return; } if (m.whisper) { addLog(`<b class="wn">${m.to ? '→ ' + esc(m.to) : esc(m.n)}</b> ${esc(m.msg)}`, 'whisper'); if (!m.to) { lastWhisper = m.n; sfx.pickup(); } return; } if (m.party) { addLog(`<b class="pn">[파티] ${esc(m.n)}</b> ${esc(m.msg)}`, 'party'); return; } if (m.guild) { addLog(`<b class="gn">[길드] ${esc(m.n)}</b> ${esc(m.msg)}`, 'guild'); return; } if (m.all) { addLog(`<b class="an">[전체] ${esc(m.n)}</b> ${esc(m.msg)}`, 'all'); return; }
     if (m.sys) { addLog(m.msg, 'sys'); if (/의뢰 (수락|완료)|주웠습니다/.test(m.msg)) sfx[/주웠/.test(m.msg) ? (/금화/.test(m.msg) ? 'coin' : 'pickup') : 'quest'](); else if (/가득|부족|없습니다|없어|않습니다|없는/.test(m.msg)) sfx.deny(); } else { addLog(`<b>${esc(m.n)}</b> ${esc(m.msg)}`, m.id === myId ? 'me' : ''); const e = ents.get(m.id); if (e) { e.say = m.msg; e.sayT = t; } } }
 }
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -266,6 +267,7 @@ addEventListener('keydown', ev => {
   else if (k === 'm') { const mu = toggleMute(); addLog(mu ? '소리를 껐습니다.' : '소리를 켰습니다.', 'sys'); $('muteBtn').querySelector('small').textContent = mu ? '음소거' : '소리'; }
   else if (k === 'q') { ui.toggle('quest'); send({ t: 'quests' }); }
   else if (k === 'o') openSettings();
+  else if (k === 'g') { if (ui.isOpen('guild')) ui.hide('guild'); else send({ t: 'guild', args: ['정보'] }); }
   else if (k === 'l') send({ t: 'leaderboard' });
   else if (k === 'r' && lastWhisper) { $('chatin').value = `/귓 ${lastWhisper} `; $('chatin').focus(); ev.preventDefault(); }
   else if (k === '1' || k === '2' || k === '3') { const id = { 1: 'hpPotion', 2: 'mpPotion', 3: 'scroll' }[k]; const i = ui.firstOf(id); if (i >= 0) send({ t: 'use', i, id }); else addLog(`${ITEMS[id].name}이(가) 없습니다.`, 'sys'); }
@@ -398,6 +400,7 @@ function frame(t) {
       if (!SETTINGS.names && e.id !== myId && e.id !== targetId && !e.boss) continue; if (SETTINGS.hideOthersNames && e.kind === 1 && e.id !== myId && e.id !== targetId && !inParty(e.id)) continue;
       if (e.kind === 4 && questMarks[e.extra]) { ctx.font = "700 16px 'Noto Sans KR'"; const qm = questMarks[e.extra] === 2 ? '?' : '!'; const qy = y - 16 - Math.abs(Math.sin(t / 400)) * 4; ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,.85)'; ctx.strokeText(qm, sx, qy); ctx.fillStyle = '#ffd86b'; ctx.fillText(qm, sx, qy); ctx.font = "500 11px 'Noto Sans KR'"; }
       ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,.85)'; ctx.strokeText(label, sx, y); ctx.fillStyle = e.boss ? '#ff9a4a' : e.elite ? '#f2d16a' : entColor(e); ctx.fillText(label, sx, y);
+      if (e.guild) { ctx.font = "500 9.5px 'Noto Sans KR'"; ctx.strokeText(`〔${e.guild}〕`, sx, y - 12); ctx.fillStyle = '#d8c27a'; ctx.fillText(`〔${e.guild}〕`, sx, y - 12); }
       if (e.kind !== 4 && e.id !== myId && (e.hp < e.maxHp || e.id === targetId)) { ctx.fillStyle = 'rgba(0,0,0,.7)'; ctx.fillRect(sx - 18, y + 4, 36, 5); ctx.fillStyle = e.id === targetId ? '#ff5a4a' : '#c0392b'; ctx.fillRect(sx - 18, y + 4, 36 * clamp(e.hp / e.maxHp, 0, 1), 5); }
       if (e.say && t - e.sayT < 5000) { ctx.font = "500 12px 'Noto Sans KR'"; const txt = e.say.length > 28 ? e.say.slice(0, 27) + '…' : e.say; const w = ctx.measureText(txt).width + 16; ctx.fillStyle = 'rgba(250,246,236,.94)'; ctx.fillRect(sx - w / 2, y - 34, w, 22); ctx.beginPath(); ctx.moveTo(sx - 5, y - 12); ctx.lineTo(sx + 5, y - 12); ctx.lineTo(sx, y - 6); ctx.fill(); ctx.fillStyle = '#1a1612'; ctx.fillText(txt, sx, y - 19); }
     }

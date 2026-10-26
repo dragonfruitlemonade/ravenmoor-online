@@ -33,7 +33,7 @@ const itemIcon = (MF, id) => iconSrc(MF, ITEMS[id] ? ITEMS[id].icon : 'gold');
 
 // ── window manager
 export function createUI({ MF, send, log }) {
-  const state = { inv: [], equip: {}, gold: 0, me: null, npc: null, npcTab: null, selInv: -1, selEq: null, selEnh: null, quests: [], trade: null, tsel: [], tgold: 0, board: [] };
+  const state = { inv: [], equip: {}, gold: 0, me: null, npc: null, npcTab: null, selInv: -1, selEq: null, selEnh: null, quests: [], trade: null, tsel: [], tgold: 0, board: [], guild: null };
   const wins = {};
   let z = 20;
   function makeWin(key, title, css) {
@@ -52,7 +52,9 @@ export function createUI({ MF, send, log }) {
   makeWin('npc', '', { left: '50%', top: '50%', transform: 'translate(-50%,-50%)', width: 'min(500px, calc(100vw - 32px))' });
   makeWin('quest', '의뢰', { right: '16px', top: '200px', width: 'min(380px, calc(100vw - 32px))' });
   makeWin('trade', '거래', { left: '50%', top: '50%', transform: 'translate(-50%,-50%)', width: 'min(520px, calc(100vw - 32px))' });
+  makeWin('guild', '길드', { right: '16px', top: '200px', width: 'min(400px, calc(100vw - 32px))' });
   makeWin('board', '순위표', { left: '50%', top: '50%', transform: 'translate(-50%,-50%)', width: 'min(420px, calc(100vw - 32px))' });
+  const body = k => wins[k].querySelector('.wb');
   const show = k => { wins[k].hidden = false; wins[k].style.zIndex = ++z; render(k); };
   const hide = k => { wins[k].hidden = true; if (k === 'npc') { state.npc = null; send({ t: 'npcclose' }); } if (k === 'trade' && state.trade) { send({ t: 'tcancel' }); state.trade = null; } };
   const toggle = k => wins[k].hidden ? show(k) : hide(k);
@@ -96,6 +98,11 @@ export function createUI({ MF, send, log }) {
         <p class="ds" style="margin:8px 0 0">양쪽이 모두 확인을 누르면 교환됩니다. 상대가 내용을 바꾸면 확인이 풀립니다.</p>`;
     } else if (k === 'board') {
       body.innerHTML = `<table class="board"><tr><th>#</th><th>이름</th><th>레벨</th><th>직업</th><th>처치</th><th>성향</th></tr>${state.board.map((r, i) => `<tr class="${r.online ? 'on' : ''}"><td>${i + 1}</td><td>${esc(r.name)}${r.online ? ' <span class="ds">접속</span>' : ''}</td><td>${r.level}</td><td>${classInfo(r.cls).name}</td><td>${r.kills}</td><td class="${r.align < 0 ? 'no' : ''}">${r.align}</td></tr>`).join('')}</table>`;
+    } else if (k === 'guild') {
+      const g = state.guild; const RANK = { leader: '길드장', officer: '부길드장', member: '길드원' };
+      if (!g) { body.innerHTML = hint('길드에 속해 있지 않습니다.') + `<p>길드는 10레벨부터 금화 3,000으로 만들 수 있습니다. 길드원끼리는 서로 공격할 수 없고, <b>/길 내용</b>으로 길드 채팅을 합니다.</p><div class="row"><input id="gname" class="in" placeholder="길드 이름 (2~8자)" maxlength="8"><button class="btn" data-g="생성">창설</button></div>`; title.textContent = '길드'; return; }
+      title.textContent = `길드 「${esc(g.name)}」`;
+      body.innerHTML = `<div class="gnotice">${g.notice ? esc(g.notice) : '<span class="ds">공지가 없습니다.</span>'}</div><table class="board"><tr><th>이름</th><th>레벨</th><th>직급</th><th></th></tr>${g.members.map(m => `<tr class="${m.online ? 'on' : ''}"><td>${esc(m.name)}</td><td>${m.level}</td><td>${RANK[m.rank] || m.rank}</td><td>${m.online ? '<span class="ds">접속</span>' : ''}</td></tr>`).join('')}</table><div class="wfoot"><span>${g.members.length} / ${g.max}명 · 길드장 ${esc(g.leader)}</span><button class="btn" data-g="탈퇴">탈퇴</button></div><div class="row"><input id="gnotice" class="in" placeholder="공지 바꾸기 (길드장·부길드장)" maxlength="120"><button class="btn" data-g="공지">공지</button></div>`;
     } else if (k === 'quest') {
       const act = state.quests.filter(x => x.st === 'active'); const done = state.quests.filter(x => x.st === 'done').length;
       body.innerHTML = (act.length ? act.map(x => questRow(QBY[x.id], x.st, x.prog, false)).join('') : hint('진행 중인 의뢰가 없습니다. 상인·경비병·스승의 머리 위에 ! 표시가 있으면 말을 걸어 보세요.')) + `<div class="wfoot"><span>완료한 의뢰 ${done} / ${QUESTS.length}</span></div>`;
@@ -139,6 +146,7 @@ export function createUI({ MF, send, log }) {
     }
   }
   function onClick(k, e) {
+    const gb = e.target.closest('[data-g]'); if (gb && k === 'guild') { const a = gb.dataset.g; if (a === '생성') send({ t: 'guild', args: ['생성', (body(k).querySelector('#gname') || {}).value || ''] }); else if (a === '공지') send({ t: 'guild', args: ['공지', (body(k).querySelector('#gnotice') || {}).value || ''] }); else if (a === '탈퇴') { if (confirm('길드를 떠나시겠습니까?')) send({ t: 'guild', args: ['탈퇴'] }); } return; }
     const to = e.target.closest('[data-toffer]'); if (to && k === 'trade' && state.trade) { const idx = [...state.trade.myIdx, +to.dataset.toffer].slice(0, 8); send({ t: 'toffer', items: idx, gold: state.trade.me.gold }); return; }
     const bk = e.target.closest('[data-bank]'); if (bk && k === 'npc') { send({ t: bk.dataset.bank === 'bank' ? 'bankOut' : 'bankIn', npc: state.npc.id, i: +bk.dataset.i, id: bk.dataset.id }); return; }
     const s = e.target.closest('[data-i],[data-slot],[data-enh]'); const b = e.target.closest('button');
@@ -176,7 +184,7 @@ export function createUI({ MF, send, log }) {
     else if (a === 'bdep' || a === 'bwd' || a === 'bdepall') { const inp = document.getElementById('bankAmt'); const v = a === 'bdepall' ? state.gold : Math.floor(+(inp && inp.value) || 0); if (v > 0) send({ t: 'bankGold', npc: n.id, v: a === 'bwd' ? -v : v }); }
   }
   return {
-    state, toggle, show, hide, closeAll, anyOpen,
+    state, toggle, show, hide, closeAll, anyOpen, render, isOpen: k => !wins[k].hidden,
     setInv(m) {
       // keep the enhance selection pointing at the same item after the list changes
       state.inv = m.inv; state.equip = m.equip; state.gold = m.gold;

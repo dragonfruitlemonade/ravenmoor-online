@@ -5,6 +5,7 @@ import { ITEMS, SLOTS, INV_SIZE, DROPS, NPCS, CLASSES, CLASS_LEVEL, ADV, ADV_LEV
 import { accountForToken, loadCharacter, saveCharacter } from './db.js';
 import { createSocial } from './social.js';
 import { adminCommand, logEvent, banInfo, isAdmin } from './admin.js';
+import { createGuilds } from './guild.js';
 
 const W = buildWorld();
 const DT = 1 / TICK_HZ;
@@ -35,7 +36,7 @@ function canFight(a, b) {
   if (!a || !b || a === b || a.dead || b.dead) return false;
   if (!(isPlayer(a) || isMonster(a)) || !(isPlayer(b) || isMonster(b))) return false;
   if (isMonster(a) && isMonster(b)) return false;
-  if (isPlayer(a) && isPlayer(b) && social.sameParty(a, b)) return false;
+  if (isPlayer(a) && isPlayer(b) && (social.sameParty(a, b) || guilds.sameGuild(a, b))) return false;
   if (isSafe(a.x, a.y) || isSafe(b.x, b.y)) return false;
   return true;
 }
@@ -354,7 +355,7 @@ setInterval(() => {
 
 function meta(e) {
   const flag = isPlayer(e) ? (e.align < 0 ? 2 : e.flagT > now() ? 1 : 0) : 0;
-  return [e.id, KIND[e.kind], e.name, e.sprite, e.level || 0, flag, e.maxHp, isPlayer(e) ? e.cls : (e.npcId || ''), e.scale || 1, e.boss ? 1 : e.elite ? 2 : 0];
+  return [e.id, KIND[e.kind], e.name, e.sprite, e.level || 0, flag, e.maxHp, isPlayer(e) ? e.cls : (e.npcId || ''), e.scale || 1, e.boss ? 1 : e.elite ? 2 : 0, e.guildName || ''];
 }
 function snapshot(c) {
   const p = c.player; const seen = new Set(); const list = [], metas = [];
@@ -371,6 +372,7 @@ function snapshot(c) {
 
 // ── connections
 const online = new Map();   // accountId -> player
+const guilds = createGuilds({ online, sys, sendTo, findPlayerByName, now, logEvent });
 export function onConnection(sock) {
   const c = { sock, player: null, known: new Map(), chatT: 0, msgs: 0, winT: now() };
   clients.add(c);
@@ -389,7 +391,7 @@ export function onConnection(sock) {
         x: SPAWN.x + (R() - .5) * 3, y: SPAWN.y + (R() - .5) * 3, speed: 4.2, dir: 0, path: null, target: null, engaged: false, cd: 0, metaVer: 1, flagT: 0, healT: 0, skillT: 0, stunT: 0, fx: {}, pick: 0, talk: null };
       for (const s of SLOTS) { const it = ch.equipment[s]; if (it && ITEMS[it.id] && ITEMS[it.id].type === s) pl.equip[s] = { id: it.id, enh: it.enh || 0 }; }
       applyStats(pl, true); ents.set(pl.id, pl); c.player = pl; online.set(acc, pl);
-      pl.admin = isAdmin(pl.name); sock.send(JSON.stringify({ t: 'welcome', id: pl.id, name: pl.name, admin: pl.admin })); sendInv(pl); logEvent('login', pl.name, null, (c.sock.sock.remoteAddress || ''));
+      pl.admin = isAdmin(pl.name); guilds.attach(pl); sock.send(JSON.stringify({ t: 'welcome', id: pl.id, name: pl.name, admin: pl.admin })); sendInv(pl); logEvent('login', pl.name, null, (c.sock.sock.remoteAddress || ''));
       broadcastAll({ t: 'chat', sys: true, msg: `${pl.name}님이 레이븐무어에 들어왔습니다. (접속 ${online.size}명)` });
       const alive = [...ents.values()].filter(e => isMonster(e) && e.boss && !e.dead).map(e => e.name); if (alive.length) sys(pl, `지금 깨어 있는 보스: ${alive.join(', ')}`);
       if (online.size > 1) sys(pl, `접속 중: ${[...online.values()].filter(x => x !== pl).map(x => x.name).join(', ')}`);
@@ -428,10 +430,12 @@ export function onConnection(sock) {
           const [cmd, ...args] = text.split(/\s+/); const rest = args.join(' ');
           if (cmd === '/귓' || cmd === '/w') { if (args.length < 2) return sys(p, '사용법: /귓 이름 내용'); social.whisper(p, args[0], args.slice(1).join(' ')); }
           else if (cmd === '/파티' || cmd === '/p') { if (args.length < 1) return sys(p, '사용법: /파티 초대 이름 · /파티 수락 · /파티 나가기 · /파티 추방 이름 · /파티 내용(파티 채팅)'); const sub = args[0]; if (sub === '초대') social.invite(p, args[1]); else if (sub === '수락') social.accept(p); else if (sub === '나가기' || sub === '탈퇴') social.leaveParty(p); else if (sub === '추방') social.kick(p, args[1] || ''); else social.partyChat(p, rest); }
+          else if (cmd === '/길드' || cmd === '/g') guilds.command(p, args);
+          else if (cmd === '/길') guilds.guildChat(p, rest);
           else if (cmd === '/거래') { if (args[0] === '수락') social.tradeAccept(p); else if (args[0] === '취소') social.cancelTrade(p); else if (args[0]) social.tradeRequest(p, args[0]); else sys(p, '사용법: /거래 이름 · /거래 수락 · /거래 취소'); }
           else if (cmd === '/전체' || cmd === '/all') { if (now() - (c.allT || 0) < 10000) return sys(p, '전체 채팅은 10초에 한 번만 쓸 수 있습니다.'); c.allT = now(); broadcastAll({ t: 'chat', all: true, id: p.id, n: p.name, msg: rest }); }
           else if (cmd === '/순위') sendTo(p, { t: 'chat', sys: true, msg: '순위는 화면 오른쪽 아래 순위표(L)에서 볼 수 있습니다.' });
-          else if (cmd === '/도움' || cmd === '/help') sys(p, '명령: /귓 이름 내용 · /파티 초대|수락|나가기|추방 · /거래 이름|수락|취소 · /전체 내용 · /도움');
+          else if (cmd === '/도움' || cmd === '/help') sys(p, '명령: /귓 이름 내용 · /파티 초대|수락|나가기|추방 · /길드 생성|초대|수락|탈퇴|정보|순위 · /길 내용 · /거래 이름|수락|취소 · /전체 내용 · /도움');
           else sys(p, '알 수 없는 명령입니다. /도움');
           return;
         }
@@ -439,6 +443,9 @@ export function onConnection(sock) {
       }
       case 'pinvite': social.invite(p, String(m.name || '')); break;
       case 'paccept': social.accept(p); break;
+      case 'ginvite': guilds.command(p, ['초대', String(m.name || '')]); break;
+      case 'gaccept': guilds.accept(p); break;
+      case 'guild': guilds.command(p, Array.isArray(m.args) ? m.args.map(String).slice(0, 4) : ['정보']); break;
       case 'pleave': social.leaveParty(p); break;
       case 'pkick': social.kick(p, String(m.name || '')); break;
       case 'trade': social.tradeRequest(p, String(m.name || '')); break;
@@ -454,7 +461,7 @@ export function onConnection(sock) {
   sock.on('message', raw => { try { handle(raw); } catch (err) { console.error('message error', err); } });
   sock.on('close', () => {
     clients.delete(c); const p = c.player; if (!p) return;
-    social.onDisconnect(p); logEvent('logout', p.name);
+    social.onDisconnect(p); guilds.detach(p); logEvent('logout', p.name);
     try { saveCharacter(p); } catch (err) { console.error('save failed', err); }
     ents.delete(p.id); if (online.get(p.accountId) === p) online.delete(p.accountId);
     for (const e of ents.values()) if (e.target === p) { e.target = null; e.engaged = false; }

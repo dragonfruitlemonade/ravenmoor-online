@@ -128,6 +128,15 @@ A.send({ t: 'toffer', items: [pA], gold: 50 }); B.send({ t: 'toffer', items: [],
 A.send({ t: 'tconfirm' }); await sleep(200); B.send({ t: 'tconfirm' }); await sleep(600);
 check(A.inv.gold === gA - 40 && B.inv.gold === gB + 40, `trade gold settled (A ${gA}->${A.inv.gold}, B ${gB}->${B.inv.gold})`);
 check(!A.inv.inv.some(x => x.id === 'hpPotion') && (B.inv.inv.find(x => x.id === 'hpPotion')?.n || 0) === nB + nA, 'trade items moved');
+// guild: create (admin gives level/gold), invite, accept, no friendly fire outside a party, chat, persistence over relogin
+A.send({ t: 'chat', msg: '/레벨 10' }); await sleep(600); A.send({ t: 'chat', msg: '/금화 5000' }); await sleep(600);
+A.send({ t: 'guild', args: ['생성', '회색기사단'] }); await sleep(400); check(A.said('창설했습니다'), 'guild created');
+A.send({ t: 'ginvite', name: '도적베스' }); await sleep(300); B.send({ t: 'gaccept' }); await sleep(500);
+check(B.said('가입했습니다') && A.meta.get(B.id)?.[10] === '회색기사단', 'guild invite accepted and tag visible in meta');
+A.send({ t: 'pleave' }); await sleep(300); A.send({ t: 'attack', id: B.id }); await sleep(300); check(A.chat.filter(t => t.includes('공격할 수 없는')).length >= 2, 'guild members cannot attack each other');
+A.send({ t: 'chat', msg: '/길 모여라' }); await sleep(300); check(B.chat.includes('모여라'), 'guild chat delivered');
+B.ws.close(); await sleep(400); B = bot(rb.token); await B.ready; await sleep(700); check(A.meta.get(B.id)?.[10] === '회색기사단', 'guild membership persists over relogin');
+B.send({ t: 'guild', args: ['탈퇴'] }); await sleep(400); check(B.said('떠났습니다') && !A.meta.get(B.id)?.[10], 'guild leave clears the tag');
 // admin: first account is admin; notice, kick
 A.send({ t: 'chat', msg: '/공지 서버 점검 예정' }); await sleep(300); check(B.chat.includes('서버 점검 예정'), 'admin notice broadcast');
 B.send({ t: 'chat', msg: '/공지 나도' }); await sleep(300); check(B.said('관리자만'), 'non-admin cannot use admin commands');
