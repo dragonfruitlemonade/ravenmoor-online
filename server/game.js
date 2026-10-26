@@ -139,8 +139,8 @@ function kill(b, a) {
       spawnDrop(b.x, b.y, null, g, a);
       for (const [id, p] of DROPS[b.type] || []) if (R() < p * (b.elite ? 2 : 1)) spawnDrop(b.x, b.y, { id, n: 1, enh: 0 }, 0, a);
       if (b.elite && R() < .25) spawnDrop(b.x, b.y, { id: ['ironHelm', 'chainMail', 'silverRing', 'longSword', 'ironShield'][Math.floor(R() * 5)], n: 1, enh: 1 + Math.floor(R() * 3) }, 0, a);
-      social.shareExp(a, m.exp * mul, gainExp); questKill(a, b.type);
-      if (social.partyOf(a)) for (const mm of social.partyOf(a).members) if (mm !== a && !mm.dead && dist(mm, a) <= 22) questKill(mm, b.type);
+      social.shareExp(a, m.exp * mul, gainExp); questKill(a, b.type, b.elite);
+      if (social.partyOf(a)) for (const mm of social.partyOf(a).members) if (mm !== a && !mm.dead && dist(mm, a) <= 22) questKill(mm, b.type, b.elite);
       if (m.boss) broadcastAll({ t: 'chat', sys: true, msg: `👑 ${a.name}이(가) ${m.name}을(를) 쓰러뜨렸습니다!` });
     }
   } else if (isPlayer(b)) {
@@ -259,17 +259,18 @@ function service(p, m) {
     const q = QBY[m.q]; if (!q || q.giver !== n.npcId || !questReady(p, q)) return;
     if (q.type === 'collect') takeItem(p, q.target, q.n);
     const r = q.reward; p.gold += r.gold || 0; if (r.items) for (const [id, cnt] of Object.entries(r.items)) addItem(p, { id, n: cnt, enh: 0 });
-    p.quests[q.id].st = 'done'; sys(p, `의뢰 완료: ${q.title} · 금화 ${r.gold}${r.items ? ' · ' + Object.keys(r.items).map(k => ITEMS[k].name).join(', ') : ''}`); broadcastNear(p.x, p.y, { t: 'ev', k: 'fx', fx: 'craft', id: p.id }); if (r.exp) gainExp(p, r.exp);
+    p.quests[q.id].st = 'done'; if (q.daily) p.quests[q.id].day = dayKey(); sys(p, `의뢰 완료: ${q.title} · 금화 ${r.gold}${r.items ? ' · ' + Object.keys(r.items).map(k => ITEMS[k].name).join(', ') : ''}`); broadcastNear(p.x, p.y, { t: 'ev', k: 'fx', fx: 'craft', id: p.id }); if (r.exp) gainExp(p, r.exp);
   } else if (m.t === 'atone') {
     if (!n.atone || p.align >= 0) return; const cost = -p.align * 150; if (p.gold < cost) return sys(p, `헌금 ${cost} G가 필요합니다.`); p.gold -= cost; p.align = 0; bump(p); sys(p, '죄가 씻겼습니다. 성향이 0으로 돌아왔습니다.');
   }
   invChanged(p); refreshNpc(p);
 }
 // ── quests
-function questState(p, q) { const s = p.quests[q.id]; return s ? s.st : (p.level >= q.lvl ? 'avail' : 'locked'); }
+const dayKey = () => new Date(now() + 9 * 3600000).toISOString().slice(0, 10);   // KST calendar day
+function questState(p, q) { const s = p.quests[q.id]; if (s && q.daily && s.st === 'done' && s.day !== dayKey()) return p.level >= q.lvl ? 'avail' : 'locked'; return s ? s.st : (p.level >= q.lvl ? 'avail' : 'locked'); }
 function questProgress(p, q) { const s = p.quests[q.id]; if (!s) return 0; return q.type === 'collect' ? Math.min(q.n, countItem(p, q.target)) : (s.k || 0); }
 function questReady(p, q) { const s = p.quests[q.id]; return !!s && s.st === 'active' && questProgress(p, q) >= q.n; }
-function questKill(p, type) { for (const q of QUESTS) { const s = p.quests[q.id]; if (!s || s.st !== 'active' || q.type !== 'kill' || q.target !== type) continue; s.k = (s.k || 0) + 1; p.saveDirty = true; if (s.k <= q.n) sys(p, `${q.title}: ${Math.min(s.k, q.n)}/${q.n}` + (s.k === q.n ? ' — 의뢰인에게 돌아가세요.' : '')); } }
+function questKill(p, type, elite) { for (const q of QUESTS) { const s = p.quests[q.id]; if (!s || s.st !== 'active' || q.type !== 'kill' || !(q.target === type || (q.target === 'elite' && elite))) continue; s.k = (s.k || 0) + 1; p.saveDirty = true; if (s.k <= q.n) sys(p, `${q.title}: ${Math.min(s.k, q.n)}/${q.n}` + (s.k === q.n ? ' — 의뢰인에게 돌아가세요.' : '')); } }
 function questMarks(p) { const out = {}; for (const q of QUESTS) { const st = questState(p, q); const cur = out[q.giver]; if (st === 'active' && questReady(p, q)) out[q.giver] = 2; else if (st === 'avail' && cur !== 2) out[q.giver] = 1; } return out; }
 
 const social = createSocial({ ents, sys, sendTo, broadcastAll, findPlayerByName, isSafe, dist, invChanged, addItem, now });

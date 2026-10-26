@@ -67,7 +67,7 @@ export function createUI({ MF, send, log }) {
   const statsLine = () => { const m = state.me; return m ? `<div class="stats"><span>공격 <b>${m[8]}</b></span><span>방어 <b>${m[9]}</b></span><span>금화 <b>${state.gold}</b></span></div>` : ''; };
   const QBY = Object.fromEntries(QUESTS.map(q => [q.id, q]));
   const questRow = (q, st, prog, withBtn) => { const r = q.reward; const rw = `보상: 금화 ${r.gold}${r.exp ? ' · 경험치 ' + r.exp : ''}${r.items ? ' · ' + Object.entries(r.items).map(([k, v]) => ITEMS[k].name + (v > 1 ? ' ×' + v : '')).join(', ') : ''}`;
-    let act = ''; if (withBtn) { if (st === 'avail') act = `<button class="btn" data-act="qaccept" data-q="${q.id}">수락</button>`; else if (st === 'active') act = prog >= q.n ? `<button class="btn" data-act="qdone" data-q="${q.id}">완료</button>` : `<span class="ds">${prog}/${q.n}</span>`; else if (st === 'done') act = '<span class="ds">완료됨</span>'; else act = `<span class="ds">Lv ${q.lvl} 필요</span>`; }
+    let act = ''; if (withBtn) { if (st === 'avail') act = `<button class="btn" data-act="qaccept" data-q="${q.id}">수락</button>`; else if (st === 'active') act = prog >= q.n ? `<button class="btn" data-act="qdone" data-q="${q.id}">완료</button>` : `<span class="ds">${prog}/${q.n}</span>`; else if (st === 'done') act = q.daily ? '<span class="ds">내일 다시</span>' : '<span class="ds">완료됨</span>'; else act = `<span class="ds">Lv ${q.lvl} 필요</span>`; }
     else act = st === 'active' ? `<span class="ds ${prog >= q.n ? 'ok' : ''}">${prog >= q.n ? '완료 가능' : prog + '/' + q.n}</span>` : '';
     const mark = st === 'done' ? '✓' : st === 'active' ? (prog >= q.n ? '?' : '…') : '!';
     return `<div class="row q"><div class="qi">${mark}</div><div><div class="nm">${q.title}</div><div class="ds">${q.desc}</div><div class="ds gold">${rw}</div></div><div class="pr">${act}</div></div>`; };
@@ -104,8 +104,8 @@ export function createUI({ MF, send, log }) {
       title.textContent = `길드 「${esc(g.name)}」`;
       body.innerHTML = `<div class="gnotice">${g.notice ? esc(g.notice) : '<span class="ds">공지가 없습니다.</span>'}</div><table class="board"><tr><th>이름</th><th>레벨</th><th>직급</th><th></th></tr>${g.members.map(m => `<tr class="${m.online ? 'on' : ''}"><td>${esc(m.name)}</td><td>${m.level}</td><td>${RANK[m.rank] || m.rank}</td><td>${m.online ? '<span class="ds">접속</span>' : ''}</td></tr>`).join('')}</table><div class="wfoot"><span>${g.members.length} / ${g.max}명 · 길드장 ${esc(g.leader)}</span><button class="btn" data-g="탈퇴">탈퇴</button></div><div class="row"><input id="gnotice" class="in" placeholder="공지 바꾸기 (길드장·부길드장)" maxlength="120"><button class="btn" data-g="공지">공지</button></div>`;
     } else if (k === 'quest') {
-      const act = state.quests.filter(x => x.st === 'active'); const done = state.quests.filter(x => x.st === 'done').length;
-      body.innerHTML = (act.length ? act.map(x => questRow(QBY[x.id], x.st, x.prog, false)).join('') : hint('진행 중인 의뢰가 없습니다. 상인·경비병·스승의 머리 위에 ! 표시가 있으면 말을 걸어 보세요.')) + `<div class="wfoot"><span>완료한 의뢰 ${done} / ${QUESTS.length}</span></div>`;
+      const act = state.quests.filter(x => x.st === 'active'); const done = state.quests.filter(x => x.st === 'done' && !QBY[x.id].daily).length;
+      body.innerHTML = (act.length ? act.map(x => questRow(QBY[x.id], x.st, x.prog, false)).join('') : hint('진행 중인 의뢰가 없습니다. 상인·경비병·스승의 머리 위에 ! 표시가 있으면 말을 걸어 보세요.')) + `<div class="wfoot"><span>완료한 의뢰 ${done} / ${QUESTS.filter(q => !q.daily).length} · 매일 현상금은 경비병·기사단·마법사 탑에서</span></div>`;
     } else if (k === 'npc') {
       const n = state.npc; if (!n) return; title.textContent = n.name; const tabs = [];
       if (n.quests && n.quests.length) tabs.push(['quest', '의뢰']); if (n.bank) tabs.push(['bank', '창고']);

@@ -125,6 +125,10 @@ export const QUESTS = [
   { id: 'gems',     giver: 'magetower', title: '영혼석',         desc: '이졸데는 해골 마법사가 품은 영혼석으로 연구를 하고 있습니다. 영혼석 3개를 가져오십시오.', type: 'collect', target: 'soulGem', n: 3, lvl: 11, reward: { gold: 600, exp: 1300, items: { mpPotion: 5 } } },
   { id: 'paladin',  giver: 'chapel',   title: '타락한 성기사',   desc: '북동쪽 검은 숲을 떠도는 타락한 성기사를 구원하십시오. 그의 방패는 아직 빛을 기억합니다.', type: 'kill', target: 'boss_paladin', n: 1, lvl: 11, reward: { gold: 900, exp: 2000, items: { silverRing: 1 } } },
   { id: 'chief',    giver: 'knights',  title: '족장 크루쉬',     desc: '북서쪽 황야 야영지를 이끄는 족장 크루쉬를 쓰러뜨려야 성벽이 안전해집니다.', type: 'kill', target: 'boss_chief', n: 1, lvl: 16, reward: { gold: 1600, exp: 4000 } },
+  // daily bounties: reset every day (KST), repeatable
+  { id: 'd_rogue',  giver: 'guard_s1', daily: true, title: '현상금: 해골 도적', desc: '경비대가 매일 거는 현상금입니다. 해골 도적 12구를 처치하십시오. (매일 초기화)', type: 'kill', target: 'skel_rogue', n: 12, lvl: 4, reward: { gold: 260, exp: 360 } },
+  { id: 'd_elite',  giver: 'knights',  daily: true, title: '현상금: 정예 사냥', desc: '기사단이 정예 몬스터 3마리의 목에 현상금을 걸었습니다. 금색 이름의 정예를 찾아 처치하십시오. (매일 초기화)', type: 'kill', target: 'elite', n: 3, lvl: 8, reward: { gold: 700, exp: 900, items: { hpPotion: 5 } } },
+  { id: 'd_mage',   giver: 'magetower', daily: true, title: '현상금: 해골 마법사', desc: '이졸데가 해골 마법사 6구의 처치를 매일 의뢰합니다. (매일 초기화)', type: 'kill', target: 'skel_mage', n: 6, lvl: 13, reward: { gold: 900, exp: 1500, items: { mpPotion: 4 } } },
   { id: 'lich',     giver: 'magetower', title: '리치 왕',        desc: '남서쪽 늪지에 잠든 리치 왕이 깨어났습니다. 레이븐무어의 운명이 걸려 있습니다.', type: 'kill', target: 'boss_lich', n: 1, lvl: 22, reward: { gold: 4000, exp: 9000, items: { soulGem: 3 } } },
 ];
 

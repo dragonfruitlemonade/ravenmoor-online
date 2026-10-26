@@ -1,5 +1,6 @@
 // End-to-end test: starts the server and drives bot clients through accounts, PK rules, items, shops, drops and class change.
 import { spawn } from 'node:child_process';
+import fs from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 const PORT = 18000 + Math.floor(Math.random() * 1000), DATA = '/tmp/rmtest-' + PORT;
 const startServer = () => { const s = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/index.js'], { env: { ...process.env, PORT, DATA_DIR: DATA }, stdio: ['ignore', 'pipe', 'inherit'] }); return new Promise(r => s.stdout.once('data', () => r(s))); };
@@ -135,8 +136,8 @@ A.send({ t: 'ginvite', name: '도적베스' }); await sleep(300); B.send({ t: 'g
 check(B.said('가입했습니다') && A.meta.get(B.id)?.[10] === '회색기사단', 'guild invite accepted and tag visible in meta');
 A.send({ t: 'pleave' }); await sleep(300); A.send({ t: 'attack', id: B.id }); await sleep(300); check(A.chat.filter(t => t.includes('공격할 수 없는')).length >= 2, 'guild members cannot attack each other');
 A.send({ t: 'chat', msg: '/길 모여라' }); await sleep(300); check(B.chat.includes('모여라'), 'guild chat delivered');
-B.ws.close(); await sleep(400); B = bot(rb.token); await B.ready; await sleep(700); check(A.meta.get(B.id)?.[10] === '회색기사단', 'guild membership persists over relogin');
-B.send({ t: 'guild', args: ['탈퇴'] }); await sleep(400); check(B.said('떠났습니다') && !A.meta.get(B.id)?.[10], 'guild leave clears the tag');
+B.ws.close(); await sleep(400); B = bot(rb.token); await B.ready; await sleep(700); check(B.meta.get(B.id)?.[10] === '회색기사단', 'guild membership persists over relogin');
+B.send({ t: 'guild', args: ['탈퇴'] }); await sleep(400); check(B.said('떠났습니다') && !B.meta.get(B.id)?.[10], 'guild leave clears the tag');
 // admin: first account is admin; notice, kick
 A.send({ t: 'chat', msg: '/공지 서버 점검 예정' }); await sleep(300); check(B.chat.includes('서버 점검 예정'), 'admin notice broadcast');
 B.send({ t: 'chat', msg: '/공지 나도' }); await sleep(300); check(B.said('관리자만'), 'non-admin cannot use admin commands');
@@ -145,6 +146,11 @@ const B2 = bot(rb.token); await B2.ready; await sleep(400); check(B2.said('차�
 A.send({ t: 'chat', msg: '/차단해제 도적베스' }); await sleep(300);
 const admin = await (await fetch(`http://127.0.0.1:${PORT}/api/admin?token=${r5.token}`)).json(); check(admin.recent.some(e => e.kind === 'ban') && admin.recent.some(e => e.kind === 'trade'), 'admin page lists ban and trade events');
 const adm403 = await fetch(`http://127.0.0.1:${PORT}/admin?token=${rb.token}`); check(adm403.status === 403, 'admin page refuses non-admins');
+await fetch(`http://127.0.0.1:${PORT}/admin?token=${r5.token}&backup=1`, { redirect: 'manual' }); const adm2 = await (await fetch(`http://127.0.0.1:${PORT}/api/admin?token=${r5.token}`)).json(); check(adm2.backups.length === 1 && fs.existsSync(`${DATA}/backups/${adm2.backups[0]}`), 'admin backup writes a DB snapshot');
+// daily bounty: level 10 admin accepts the guard's daily, progress counts rogue kills via admin-spawned monster kill is slow, so just verify state transitions
+A.send({ t: 'use', i: A.inv.inv.findIndex(x => x.id === 'scroll'), id: 'scroll' }); await sleep(1500); A.send({ t: 'talk', npc: 'guard_s1' }); for (let i = 0; i < 12; i++) { await sleep(1000); if (A.npc && A.npc.id === 'guard_s1' && A.npc.quests.some(q => q.id === 'd_rogue')) break; }
+check(A.npc && A.npc.quests && A.npc.quests.some(q => q.id === 'd_rogue' && q.st === 'avail'), 'daily bounty offered by the south guard');
+A.send({ t: 'qaccept', npc: 'guard_s1', q: 'd_rogue' }); await sleep(400); check(A.npc.quests.find(q => q.id === 'd_rogue')?.st === 'active', 'daily bounty accepted');
 B = bot(rb.token); await B.ready; await sleep(500);
 const health = await (await fetch(`http://127.0.0.1:${PORT}/health`)).json();
 check(health.players === 2 && health.monsters > 90, `health ${JSON.stringify(health)}`);

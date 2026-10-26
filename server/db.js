@@ -79,3 +79,17 @@ export function logout(token) { q.delSess.run(String(token || '')); }
 export function loadCharacter(accountId) { const c = q.getChar.get(accountId); if (!c) return null; c.inventory = JSON.parse(c.inventory); c.equipment = JSON.parse(c.equipment); c.bank = JSON.parse(c.bank || '[]'); c.quests = JSON.parse(c.quests || '{}'); return c; }
 export function saveCharacter(p) { q.saveChar.run(p.cls, p.level, p.exp, p.gold, p.align, p.kills, JSON.stringify(p.inv), JSON.stringify(p.equip), JSON.stringify(p.bank || []), p.bankGold || 0, JSON.stringify(p.quests || {}), Date.now(), p.accountId); }
 setInterval(() => q.purge.run(Date.now()), 3600_000).unref();
+
+// ── backups: a consistent snapshot of the DB every 30 minutes (VACUUM INTO), keeping the newest 48 files
+const BACKUP_DIR = path.join(DATA_DIR, 'backups');
+export let lastBackup = 0;
+export function backup() {
+  fs.mkdirSync(BACKUP_DIR, { recursive: true });
+  const stamp = new Date().toISOString().replace(/[:T]/g, '-').slice(0, 16);
+  const file = path.join(BACKUP_DIR, `ravenmoor-${stamp}.db`);
+  db.exec(`VACUUM INTO '${file.replace(/'/g, "''")}'`); lastBackup = Date.now();
+  const old = fs.readdirSync(BACKUP_DIR).filter(f => f.endsWith('.db')).sort().slice(0, -48); for (const f of old) fs.rmSync(path.join(BACKUP_DIR, f), { force: true });
+  return file;
+}
+export function listBackups() { try { return fs.readdirSync(BACKUP_DIR).filter(f => f.endsWith('.db')).sort().reverse().slice(0, 10); } catch { return []; } }
+if (process.env.NODE_ENV !== 'test') setInterval(() => { try { backup(); } catch (err) { console.error('backup failed', err); } }, 1800_000).unref();
