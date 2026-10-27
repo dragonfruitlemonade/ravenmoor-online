@@ -199,10 +199,13 @@ function drawEntity(e, t) {
 function headY(e) { const C = charDef(e.sprite); return C ? C.ay * SC * .62 * (e.scale || 1) : 50; }
 
 // ───────────────────────── effects
-const SETTINGS = { names: true, dmg: true, mmBig: false, hideOthersNames: false }; try { Object.assign(SETTINGS, JSON.parse(localStorage.getItem('rm-settings') || '{}')); } catch {}
+const SETTINGS = { names: true, dmg: true, mmBig: false, hideOthersNames: false, rts: true };
+// red crosshair shown while an A-click attack is armed
+const ARM_CURSOR = `url("data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28"><g fill="none" stroke="#000" stroke-width="4"><circle cx="14" cy="14" r="8"/><path d="M14 1v7M14 20v7M1 14h7M20 14h7"/></g><g fill="none" stroke="#ff5a46" stroke-width="2"><circle cx="14" cy="14" r="8"/><path d="M14 1v7M14 20v7M1 14h7M20 14h7"/></g></svg>')}") 14 14, crosshair`; try { Object.assign(SETTINGS, JSON.parse(localStorage.getItem('rm-settings') || '{}')); } catch {}
 function saveSettings() { try { localStorage.setItem('rm-settings', JSON.stringify(SETTINGS)); } catch {} applySettings(); }
-function applySettings() { $('minimap').classList.toggle('big', !!SETTINGS.mmBig); }
-function openSettings() { const w = $('settings'); w.hidden = !w.hidden; if (w.hidden) return; w.innerHTML = `<div class="wh"><span class="wt">설정</span><button class="wx" id="setx">✕</button></div><div class="wb"><label><input type="checkbox" data-s="sound" ${isMuted() ? '' : 'checked'}> 효과음·환경음</label><label><input type="checkbox" data-s="names" ${SETTINGS.names ? 'checked' : ''}> 이름표 표시</label><label><input type="checkbox" data-s="hideOthersNames" ${SETTINGS.hideOthersNames ? 'checked' : ''}> 다른 모험가 이름 숨기기</label><label><input type="checkbox" data-s="dmg" ${SETTINGS.dmg ? 'checked' : ''}> 피해 숫자 표시</label><label><input type="checkbox" data-s="mmBig" ${SETTINGS.mmBig ? 'checked' : ''}> 큰 미니맵</label><div class="row"><button class="btn" id="zoomReset">확대 초기화</button><button class="btn" id="setLogout">로그아웃</button></div><p class="ds">단축키: A 공격 · H 치유 · S/D 기술 · 1·2·3 물약·귀환 · Z 줍기 · I 가방 · E 장비 · C 캐릭터 · Q 의뢰 · L 순위 · M 소리 · O 설정 · R 귓속말 답장 · Esc 멈춤</p></div>`;
+function applySettings() { $('minimap').classList.toggle('big', !!SETTINGS.mmBig); if (!SETTINGS.rts) armAttack(false);
+  $('ctrlhint').innerHTML = SETTINGS.rts ? '<kbd>우클릭</kbd> 이동·공격·줍기·대화 <kbd>좌클릭</kbd> 선택 <kbd>A</kbd>+클릭 공격(땅: 싸우며 이동)' : '<kbd>클릭</kbd> 이동·공격·줍기·대화 <kbd>우클릭</kbd> 상대 메뉴'; }
+function openSettings() { const w = $('settings'); w.hidden = !w.hidden; if (w.hidden) return; w.innerHTML = `<div class="wh"><span class="wt">설정</span><button class="wx" id="setx">✕</button></div><div class="wb"><label><input type="checkbox" data-s="sound" ${isMuted() ? '' : 'checked'}> 효과음·환경음</label><label><input type="checkbox" data-s="names" ${SETTINGS.names ? 'checked' : ''}> 이름표 표시</label><label><input type="checkbox" data-s="hideOthersNames" ${SETTINGS.hideOthersNames ? 'checked' : ''}> 다른 모험가 이름 숨기기</label><label><input type="checkbox" data-s="rts" ${SETTINGS.rts ? 'checked' : ''}> RTS식 조작 (오른쪽 클릭 이동, A+클릭 공격)</label><label><input type="checkbox" data-s="dmg" ${SETTINGS.dmg ? 'checked' : ''}> 피해 숫자 표시</label><label><input type="checkbox" data-s="mmBig" ${SETTINGS.mmBig ? 'checked' : ''}> 큰 미니맵</label><div class="row"><button class="btn" id="zoomReset">확대 초기화</button><button class="btn" id="setLogout">로그아웃</button></div><p class="ds">단축키: A 공격(RTS식: A+클릭, A 두 번은 가장 가까운 적) ·H 치유 · S/D 기술 · 1·2·3 물약·귀향 · Z 줍기 · I 가방 · E 장비 · C 캐릭터 · Q 의뢰 · L 순위 · M 소리 · O 설정 · R 귓속말 답장 · Esc 멈춤</p></div>`;
   $('setx').onclick = () => { w.hidden = true; }; $('zoomReset').onclick = () => { zoom = defaultZoom(); zoomSet = false; }; $('setLogout').onclick = () => $('logout').click();
   for (const c of w.querySelectorAll('input[data-s]')) c.onchange = () => { if (c.dataset.s === 'sound') { const mu = toggleMute(); $('muteBtn').querySelector('small').textContent = mu ? '음소거' : '소리'; return; } SETTINGS[c.dataset.s] = c.checked; saveSettings(); }; }
 const rainDrops = []; const floats = [], bolts = [], clicks = [], rings = [], tele = [], chainsFx = []; let hurtT = -1e9, hurtAmt = 0, deadAt = 0, entering = false, underAmt = 0, jumped = false; let raidState = null, weather = 0, weatherAmt = 0, hoverId = 0, dayPhase = 0, questMarks = {}, party = null, isAdminUser = false, lastWhisper = null;
@@ -218,7 +221,7 @@ function showInvite(m) {
   box.appendChild(d); setTimeout(() => d.remove(), m.kind === 'party' ? 60000 : 30000); sfx.quest();
 }
 // one-time tips for newcomers (remembered per browser)
-const TIPS = { move: '바닥을 클릭하면 이동, 몬스터를 클릭하거나 A 키를 누르면 공격합니다. 상인·스승은 클릭해서 말을 겁니다.', outside: '성 밖입니다. 6레벨부터는 다른 모험가가 공격해 올 수 있습니다. 귀환 주문서(3)로 언제든 마을로 돌아갑니다.', lowhp: '체력이 낮습니다! 1번 키로 물약을 마시거나 H로 치유하세요. 싸움을 멈추면 서서히 회복되고, 마을 안에서는 두 배로 빠릅니다.', drop: '바닥의 전리품은 클릭하거나 Z 키로 줍습니다. 10초 동안은 처치한 사람에게 우선권이 있습니다.', bag: '가방(I)에서 물건을 두 번 누르면 사용하거나 장착합니다. 장비(E)와 캐릭터(C) 창도 확인해 보세요.', party: '다른 모험가를 우클릭하면 파티 초대·거래·귓속말을 할 수 있습니다. 파티는 경험치를 나누고 서로 공격할 수 없습니다.', crypt: '지하 묘지입니다. 남쪽(안쪽)으로 갈수록 망자들이 강해지고, 가장 깊은 방에는 묘지기 군주가 있습니다. 입구 옆 보라색 계단으로 언제든 지상에 올라갈 수 있습니다.', boss: '보스는 혼자서는 버겁습니다. 바닥에 붉은 원이 보이면 범위 공격 예고이니 피하세요. 파티를 모아 도전하세요.' };
+const TIPS = { move: '마우스: 오른쪽 클릭으로 이동하고, 몬스터를 오른쪽 클릭하면 공격합니다. A를 누른 뒤 클릭하면 그 대상을 공격하고, 땅을 클릭하면 가는 길의 몬스터와 싸우며 이동합니다. 왼쪽 클릭은 선택. (설정에서 예전 방식으로 바꿀 수 있습니다) 터치: 누르면 이동·공격·대화.', outside: '성 밖입니다. 6레벨부터는 다른 모험가가 공격해 올 수 있습니다. 귀향 두루마리(3)로 언제든 마을로 돌아갑니다.', lowhp: '체력이 낮습니다! 1번 키로 물약을 마시거나 H로 치유하세요. 싸움을 멈추면 서서히 회복되고, 마을 안에서는 두 배로 빠릅니다.', drop: '바닥의 전리품은 클릭하거나 Z 키로 줍습니다. 10초 동안은 처치한 사람에게 우선권이 있습니다.', bag: '가방(I)에서 물건을 두 번 누르면 사용하거나 장착합니다. 장비(E)와 캐릭터(C) 창도 확인해 보세요.', party: '다른 모험가를 우클릭하면 파티 초대·거래·귓속말을 할 수 있습니다. 파티는 경험치를 나누고 서로 공격할 수 없습니다.', crypt: '지하 묘지입니다. 남쪽(안쪽)으로 갈수록 망자들이 강해지고, 가장 깊은 방에는 묘지기 모르바스가 있습니다. 입구 옆 보라색 계단으로 언제든 지상에 올라갈 수 있습니다.', boss: '보스는 혼자서는 버겁습니다. 바닥에 붉은 원이 보이면 범위 공격 예고이니 피하세요. 파티를 모아 도전하세요.' };
 let tipsSeen = {}; try { tipsSeen = JSON.parse(localStorage.getItem('rm-tips') || '{}'); } catch {}
 function tip(key) { if (tipsSeen[key] || !TIPS[key]) return; tipsSeen[key] = 1; try { localStorage.setItem('rm-tips', JSON.stringify(tipsSeen)); } catch {} const n = $('tip'); n.innerHTML = `<b>도움말</b> ${esc(TIPS[key])}`; n.hidden = false; clearTimeout(tip.t); tip.t = setTimeout(() => n.hidden = true, 12000); addLog('💡 ' + TIPS[key], 'sys'); }
 function showNotice(text, ms = 8000) { const n = $('notice'); n.textContent = text; n.hidden = false; clearTimeout(showNotice.t); showNotice.t = setTimeout(() => n.hidden = true, ms); }
@@ -315,12 +318,34 @@ function pickEntity(px, py) {
   for (const e of ents.values()) { if (e.id === myId || e.st === 4 || e.rx === null) continue; const [sx, sy] = toS(e.rx, e.ry); const x = (sx - cam.x) * zoom + VW / 2, y = (sy - cam.y) * zoom + VH / 2; const drop = e.kind === 3; const scl = e.scale || 1; const dx = px - x, dy = py - (y - (drop ? 10 : 26 * scl) * zoom); if (Math.abs(dx) < (drop ? 15 : 20 * scl) * zoom && Math.abs(dy) < (drop ? 14 : 32 * scl) * zoom) { const d = dx * dx + dy * dy - (drop ? 200 : 0); if (d < bd) { bd = d; best = e; } } }
   return best;
 }
-canvas.addEventListener('contextmenu', ev => { ev.preventDefault(); if (!myId) return; const e = pickEntity(ev.clientX, ev.clientY); if (e && e.kind === 1) playerMenu(e, ev.clientX, ev.clientY); });
-canvas.addEventListener('pointerdown', ev => {
-  if (!myId || ev.button === 2) return; $('chatin').blur();
-  const e = pickEntity(ev.clientX, ev.clientY);
+// Controls. RTS (default for mouse): right-click = move / smart command (monster → attack, loot → pick, NPC → talk; other players are
+// only walked to, never attacked), left-click = select, A then left-click = attack that target, or attack-move to the ground point.
+// Classic: left-click does everything, right-click opens the player menu. Touch always taps to act and long-presses for the menu.
+let attackArmed = false, lastTouch = false;
+addEventListener('pointerdown', ev => { lastTouch = ev.pointerType === 'touch' || ev.pointerType === 'pen'; }, true);
+function armAttack(on) { attackArmed = on; $('armhint').hidden = !on; }
+function walkTo(px, py, kind = 'move') { const [x, y] = screenToTile(px, py); send({ t: kind, x, y }); clicks.push({ x, y, t0: performance.now(), col: kind === 'amove' ? '255,110,90' : '255,225,150' }); dest = { x, y, t0: performance.now() }; }
+function act(e, px, py) {   // the classic / touch "do the obvious thing"
   if (e) { if (e.kind === 3) { send({ t: 'pick', id: e.id }); return; } if (e.kind === 4) { send({ t: 'talk', npc: e.extra }); return; } targetId = e.id; send({ t: 'attack', id: e.id }); return; }
-  const [x, y] = screenToTile(ev.clientX, ev.clientY); targetId = 0; send({ t: 'move', x, y }); clicks.push({ x, y, t0: performance.now() }); dest = { x, y, t0: performance.now() };
+  targetId = 0; walkTo(px, py);
+}
+canvas.addEventListener('contextmenu', ev => { ev.preventDefault(); if (!myId || SETTINGS.rts) return; const e = pickEntity(ev.clientX, ev.clientY); if (e && e.kind === 1) playerMenu(e, ev.clientX, ev.clientY); });
+canvas.addEventListener('pointerdown', ev => {
+  if (!myId) return; $('chatin').blur();
+  const e = pickEntity(ev.clientX, ev.clientY), touch = ev.pointerType === 'touch' || ev.pointerType === 'pen';
+  if (touch || !SETTINGS.rts) { if (ev.button === 0) act(e, ev.clientX, ev.clientY); return; }
+  if (ev.button === 2) {
+    if (attackArmed) { armAttack(false); return; }
+    if (e && e.kind === 2) { targetId = e.id; send({ t: 'attack', id: e.id }); }
+    else if (e && (e.kind === 3 || e.kind === 4)) act(e);
+    else walkTo(ev.clientX, ev.clientY);
+    return;
+  }
+  if (ev.button !== 0) return;
+  if (attackArmed) { armAttack(false); if (e && (e.kind === 1 || e.kind === 2)) { targetId = e.id; send({ t: 'attack', id: e.id }); } else walkTo(ev.clientX, ev.clientY, 'amove'); return; }
+  if (!e) return;
+  if (e.kind === 3 || e.kind === 4) { act(e); return; }
+  targetId = e.id; if (e.kind === 1) { const x = ev.clientX, y = ev.clientY; setTimeout(() => playerMenu(e, x, y), 0); }   // after this click's outside-closes-menu handler
 });
 let pinch = null, pressTimer = 0;
 canvas.addEventListener('touchstart', ev => { if (ev.touches.length === 2) { pinch = { d: Math.hypot(ev.touches[0].clientX - ev.touches[1].clientX, ev.touches[0].clientY - ev.touches[1].clientY), z: zoom }; } else if (ev.touches.length === 1) { const t0 = ev.touches[0]; clearTimeout(pressTimer); pressTimer = setTimeout(() => { const e = pickEntity(t0.clientX, t0.clientY); if (e && e.kind === 1) playerMenu(e, t0.clientX, t0.clientY); }, 550); } }, { passive: true });
@@ -333,7 +358,7 @@ addEventListener('keydown', ev => {
   if (ev.key === 'Enter' && !inChat) { $('chatin').focus(); ev.preventDefault(); return; }
   if (inChat) { if (ev.key === 'Escape') $('chatin').blur(); return; }
   const k = ev.key.toLowerCase();
-  if (k === 'escape') { if (ui.anyOpen()) ui.closeAll(); else { send({ t: 'stop' }); targetId = 0; } }
+  if (k === 'escape') { if (attackArmed) armAttack(false); else if (ui.anyOpen()) ui.closeAll(); else { send({ t: 'stop' }); targetId = 0; } }
   else if (k === 'h') send({ t: 'heal' });
   else if (k === 's') send({ t: 'skill', id: targetId || undefined });
   else if (k === 'd') send({ t: 'skill2' });
@@ -346,7 +371,9 @@ addEventListener('keydown', ev => {
   else if (k === '1' || k === '2' || k === '3') { const id = { 1: 'hpPotion', 2: 'mpPotion', 3: 'scroll' }[k]; const i = ui.firstOf(id); if (i >= 0) send({ t: 'use', i, id }); else addLog(`${ITEMS[id].name}이(가) 없습니다.`, 'sys'); }
   else if (k === 'i') ui.toggle('inv'); else if (k === 'e') ui.toggle('eq'); else if (k === 'c') ui.toggle('char');
   else if (k === 'z' && me) send({ t: 'pickall' });
-  else if (k === 'a' && me) { let best = null, bd = 9; for (const e of ents.values()) { if (e.kind !== 2 || e.st === 4) continue; const d = Math.hypot(e.x - me.x, e.y - me.y); if (d < bd) { bd = d; best = e; } } if (best) { targetId = best.id; send({ t: 'attack', id: best.id }); } else addLog('근처에 공격할 몬스터가 없습니다.', 'sys'); }
+  // RTS: A arms an attack click; A again (or A on a touch screen, or classic mode) hits the nearest monster
+  else if (k === 'a' && me && SETTINGS.rts && !lastTouch && !attackArmed) armAttack(true);
+  else if (k === 'a' && me) { armAttack(false); let best = null, bd = 9; for (const e of ents.values()) { if (e.kind !== 2 || e.st === 4) continue; const d = Math.hypot(e.x - me.x, e.y - me.y); if (d < bd) { bd = d; best = e; } } if (best) { targetId = best.id; send({ t: 'attack', id: best.id }); } else addLog('근처에 공격할 몬스터가 없습니다.', 'sys'); }
 });
 const CHANNELS = [['', '일반'], ['party', '파티'], ['guild', '길드'], ['all', '전체']]; let chan = 0;
 function setChan(i) { chan = (i + CHANNELS.length) % CHANNELS.length; const b = $('chatch'); b.textContent = CHANNELS[chan][1]; b.className = CHANNELS[chan][0]; $('chatin').placeholder = chan ? `${CHANNELS[chan][1]} 채팅` : matchMedia('(pointer:coarse)').matches ? '눌러서 대화' : 'Enter 키로 대화'; }
@@ -433,7 +460,7 @@ function hud() {
   $('hpb').style.width = (100 * hp / mhp) + '%'; $('hpt').textContent = `${hp} / ${mhp}`; $('mpb').style.width = (100 * mp / mmp) + '%'; $('mpt').textContent = `${mp} / ${mmp}`;
   $('pcls').classList.toggle('bless', !!meStats[20]);
   $('xpb').style.width = (100 * xp / need) + '%'; $('xpt').textContent = `${(100 * xp / need).toFixed(1)}%`; $('plv').textContent = lv; $('gold').textContent = gold;
-  $('align').textContent = align < 0 ? `카오틱 ${align}` : `성향 ${align}`; $('align').style.color = align < 0 ? '#ff6a5a' : '';
+  $('align').textContent = align < 0 ? `무법자 ${align}` : `명예 ${align}`; $('align').style.color = align < 0 ? '#ff6a5a' : '';
   if (me) { const safe = isSafe(me.x, me.y), under = inDungeon(me.x, me.y); const z = under ? `지하 묘지 · ${CRYPT_FLOOR_NAME[cryptFloor(me.y)]}` : safe ? '성내 · 안전 지대' : '성 밖 · PK 허용';
     if (z !== lastZone) { lastZone = z; $('zonet').textContent = z; $('zone').classList.toggle('danger', !safe); $('zone').classList.toggle('crypt', under); if (under) { tip('crypt'); showNotice(z, 3000); } else if (!safe) tip('outside'); } }
   if (hp < mhp * .4 && hp > 0) tip('lowhp'); if (meStats[21]) tip('party');
@@ -478,7 +505,7 @@ function frame(t) {
       for (let k = 0; k < 4; k++) { ctx.fillStyle = `rgba(120,110,130,${.5 - k * .1})`; ctx.fillRect(sx - 14 + k * 3, sy - 6 + k * 3.5, 28 - k * 6, 2.5); }
       ctx.lineWidth = 2; for (let k = 0; k < 8; k++) { const a = t / 1400 + k * Math.PI / 4; ctx.strokeStyle = `rgba(170,130,255,${.45 + .3 * Math.sin(t / 300 + k)})`; ctx.beginPath(); ctx.ellipse(sx, sy, 30, 15, 0, a, a + .45); ctx.stroke(); } }
     // click markers
-    for (let i = clicks.length - 1; i >= 0; i--) { const c = clicks[i]; const a = 1 - (t - c.t0) / 600; if (a <= 0) { clicks.splice(i, 1); continue; } const [sx, sy] = toS(c.x, c.y); ctx.strokeStyle = `rgba(255,225,150,${a})`; ctx.lineWidth = 2; ctx.beginPath(); ctx.ellipse(sx, sy, 10 + (1 - a) * 14, 5 + (1 - a) * 7, 0, 0, 7); ctx.stroke(); }
+    for (let i = clicks.length - 1; i >= 0; i--) { const c = clicks[i]; const a = 1 - (t - c.t0) / 600; if (a <= 0) { clicks.splice(i, 1); continue; } const [sx, sy] = toS(c.x, c.y); ctx.strokeStyle = `rgba(${c.col || '255,225,150'},${a})`; ctx.lineWidth = 2; ctx.beginPath(); ctx.ellipse(sx, sy, 10 + (1 - a) * 14, 5 + (1 - a) * 7, 0, 0, 7); ctx.stroke(); }
     for (let i = tele.length - 1; i >= 0; i--) { const q = tele[i]; const p = (t - q.t0) / q.life; if (p >= 1) { tele.splice(i, 1); continue; }
       if (q.k === 'slam') { const [sx, sy] = toS(q.x, q.y); ctx.strokeStyle = `rgba(255,70,50,${.5 + .4 * Math.sin(t / 60)})`; ctx.lineWidth = 2; ctx.beginPath(); ctx.ellipse(sx, sy, q.r * TW / 2, q.r * TH / 2, 0, 0, 7); ctx.stroke(); ctx.fillStyle = `rgba(255,70,50,${.1 + p * .25})`; ctx.beginPath(); ctx.ellipse(sx, sy, q.r * TW / 2 * p, q.r * TH / 2 * p, 0, 0, 7); ctx.fill(); }
       else if (q.k === 'charge' && q.from && q.from.rx !== null) { const [ax, ay] = toS(q.from.rx, q.from.ry), [bx, by] = toS(q.x, q.y); ctx.strokeStyle = 'rgba(255,90,50,.75)'; ctx.lineWidth = 3; ctx.setLineDash([8, 6]); ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke(); ctx.setLineDash([]); } }
@@ -551,7 +578,7 @@ function frame(t) {
     const hp01 = meStats ? meStats[0] / Math.max(1, meStats[1]) : 1; const hurtA = Math.max(0, 1 - (t - hurtT) / 450) * hurtAmt * .5 + (hp01 < .35 && hp01 > 0 ? (.2 + .1 * Math.sin(t / 220)) * Math.min(1, .4 + (1 - hp01 / .35)) : 0);
     if (hurtA > .01) { const hg = ctx.createRadialGradient(VW / 2, VH / 2, Math.min(VW, VH) * .35, VW / 2, VH / 2, Math.max(VW, VH) * .7); hg.addColorStop(0, 'rgba(160,0,0,0)'); hg.addColorStop(1, `rgba(170,10,0,${hurtA})`); ctx.fillStyle = hg; ctx.fillRect(0, 0, VW, VH); }
     if (frameN % 4 === 0) { hud(); drawMinimap(); }
-    const pe = pickEntity(lastMouse[0], lastMouse[1]); hoverId = pe ? pe.id : 0; canvas.style.cursor = pe ? 'pointer' : 'crosshair';
+    const pe = pickEntity(lastMouse[0], lastMouse[1]); hoverId = pe ? pe.id : 0; canvas.style.cursor = attackArmed ? ARM_CURSOR : pe ? 'pointer' : 'crosshair';
   }
   requestAnimationFrame(frame);
 }

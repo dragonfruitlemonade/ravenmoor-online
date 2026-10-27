@@ -199,7 +199,12 @@ A.send({ t: 'chat', msg: '/습격' }); await sleep(600); check(A.said('이미 �
   A.send({ t: 'chat', msg: '/레벨 60' }); await sleep(650); A.send({ t: 'chat', msg: '/텔레포트 230.5 160.5' }); await sleep(1500);
   check([...A.ents.keys()].some(id => typeOf(A, id) === 'crypt_lord' && A.meta.get(id)[9] === 1), 'the catacomb lord waits in the deepest chamber');
   A.send({ t: 'move', x: 225.5, y: 163.5 }); await sleep(2500); pa = A.pos();
-  check(pa && pa[0] < WD.OVER && A.said('군주의 방 뒤편 통로'), `the chamber's back passage returns you to the surface (${pa && pa.map(v => v.toFixed(1))})`);
+  check(pa && pa[0] < WD.OVER && A.said('안식처 뒤편 통로'), `the chamber's back passage returns you to the surface (${pa && pa.map(v => v.toFixed(1))})`);
+  // attack-move (A + ground click): fights the monster in the way, then finishes the walk
+  A.evs.length = 0; A.send({ t: 'chat', msg: '/몬스터 skel_minion' }); await sleep(500); const p0 = A.pos();
+  const sk = [...A.ents.values()].find(e => A.meta.get(e[0])?.[1] === 2 && A.meta.get(e[0])?.[3] === 'skel_minion' && Math.hypot(e[1] - p0[0], e[2] - p0[1]) < 3.5);
+  A.send({ t: 'amove', x: p0[0] + 6, y: p0[1] }); let pend = null; for (let i = 0; i < 20; i++) { await sleep(500); pend = A.pos(); if (sk && A.evs.some(e => e.k === 'die' && e.id === sk[0]) && Math.hypot(pend[0] - p0[0] - 6, pend[1] - p0[1]) < 1.5) break; }
+  check(sk && A.evs.some(e => e.k === 'die' && e.id === sk[0]) && Math.hypot(pend[0] - p0[0] - 6, pend[1] - p0[1]) < 1.5, `attack-move kills the monster on the way and arrives (${pend && pend.map(v => v.toFixed(1))})`);
 }
 const health = await (await fetch(`http://127.0.0.1:${PORT}/health`)).json();
 check(health.players === 2 && health.monsters > 90, `health ${JSON.stringify(health)}`);

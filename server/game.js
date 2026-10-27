@@ -146,7 +146,7 @@ function damage(b, dmg, a, crit) {
   if (b.hp <= 0) kill(b, a);
 }
 function kill(b, a) {
-  b.hp = 0; b.dead = true; b.deadT = now(); b.path = null; b.target = null; b.engaged = false;
+  b.hp = 0; b.dead = true; b.deadT = now(); b.path = null; b.target = null; b.engaged = false; b.amove = null;
   for (const e of ents.values()) if (e.target === b) { e.target = null; e.engaged = false; }
   broadcastNear(b.x, b.y, { t: 'ev', k: 'die', id: b.id });
   if (isMonster(b)) {
@@ -168,11 +168,11 @@ function kill(b, a) {
     const chaotic = b.align < 0; const lost = Math.floor(b.gold * (chaotic ? .2 : .1)); b.gold -= lost;
     b.exp = Math.max(0, b.exp - Math.floor(expNeed(b.level) * .05));
     if (lost > 0) spawnDrop(b.x, b.y, null, lost, isPlayer(a) ? a : null);
-    if (chaotic && b.inv.length) { const it = b.inv.splice(Math.floor(R() * b.inv.length), 1)[0]; spawnDrop(b.x, b.y, it, 0, isPlayer(a) ? a : null); sys(b, `카오틱 상태로 쓰러져 ${itemName(it)}을(를) 떨어뜨렸습니다.`); }
+    if (chaotic && b.inv.length) { const it = b.inv.splice(Math.floor(R() * b.inv.length), 1)[0]; spawnDrop(b.x, b.y, it, 0, isPlayer(a) ? a : null); sys(b, `무법자 상태로 쓰러져 ${itemName(it)}을(를) 떨어뜨렸습니다.`); }
     sys(b, `${a ? a.name + '에게 ' : ''}쓰러졌습니다. 금화 ${lost}과 경험치 일부를 잃었습니다. 5초 뒤 마을에서 깨어납니다.`);
     if (isPlayer(a)) {
       const innocent = b.align >= 0 && !(b.flagT > now());
-      if (innocent) { a.align -= 1; a.kills++; sys(a, `${b.name}을(를) 살해했습니다. 성향이 떨어져 카오틱(붉은 이름)이 됩니다.`); }
+      if (innocent) { a.align -= 1; a.kills++; sys(a, `${b.name}을(를) 살해했습니다. 명예가 떨어져 무법자(붉은 이름)가 됩니다.`); }
       else { a.align = Math.min(a.align + 1, 30); sys(a, `${b.name}을(를) 처단했습니다.`); }
       a.stats.pks = (a.stats.pks || 0) + 1; b.stats.deaths = (b.stats.deaths || 0) + 1; checkTitles(a); bump(a); a.saveDirty = true;
       broadcastAll({ t: 'chat', sys: true, msg: `⚔ ${a.name}이(가) 성 밖에서 ${b.name}을(를) 쓰러뜨렸습니다.` }); logEvent('pk', a.name, b.name, { innocent, lost });
@@ -284,7 +284,7 @@ function service(p, m) {
   } else if (m.t === 'mbuy') { if (n.market) market.buy(p, m.id);
   } else if (m.t === 'mcancel') { if (n.market) market.cancel(p, m.id);
   } else if (m.t === 'atone') {
-    if (!n.atone || p.align >= 0) return; const cost = -p.align * 150; if (p.gold < cost) return sys(p, `헌금 ${cost} G가 필요합니다.`); p.gold -= cost; p.align = 0; bump(p); sys(p, '죄가 씻겼습니다. 성향이 0으로 돌아왔습니다.');
+    if (!n.atone || p.align >= 0) return; const cost = -p.align * 150; if (p.gold < cost) return sys(p, `헌금 ${cost} G가 필요합니다.`); p.gold -= cost; p.align = 0; bump(p); sys(p, '죄가 씻겼습니다. 명예가 0으로 돌아왔습니다.');
   }
   invChanged(p); refreshNpc(p);
 }
@@ -357,11 +357,19 @@ function playerTick(p, dt) {
   if (p.talk) { const n = npcById[p.talk]; if (n && dist(p, n) <= 2.2) { p.talk = null; p.path = null; talkTo(p, n); } else if (!p.path) p.talk = null; }
   if (p.npcOpen) { const n = npcById[p.npcOpen]; if (!n || dist(p, n) > 3.5) { p.npcOpen = null; sendTo(p, { t: 'npcclose' }); } }
   if (p.engaged && p.target) { const t = ents.get(p.target.id); if (!t || t.dead || !canFight(p, t)) { p.engaged = false; p.target = null; } else pursue(p, t, dt); }
-  else step(p, dt);
+  else {
+    // attack-move: only monsters are picked up on the way (other players are never auto-attacked)
+    const am = p.amove;
+    if (am && now() >= am.scanT) { am.scanT = now() + 250; let best = null, bd = 5.5; for (const e of near(p.x, p.y, 5.5, isMonster)) { const d = dist(p, e); if (d < bd && canFight(p, e)) { bd = d; best = e; } }
+      if (best) { p.target = best; p.engaged = true; }
+      else if (Math.hypot(p.x - am.x, p.y - am.y) < 1.2) p.amove = null;
+      else if (!p.path) { setPath(p, am.x, am.y); if (!p.path) p.amove = null; } }
+    if (!p.engaged) step(p, dt);
+  }
   // portals (crypt entrance / exits): stepping onto one moves you; a short cooldown stops ping-ponging
   const pt = portalAt(p.x, p.y);
   if (pt && now() > (p.portalT || 0)) {
-    p.portalT = now() + 1500; p.path = null; p.engaged = false; p.target = null; p.pick = 0; p.pickQ = null; p.talk = null;
+    p.portalT = now() + 1500; p.path = null; p.engaged = false; p.target = null; p.pick = 0; p.pickQ = null; p.talk = null; p.amove = null;
     broadcastNear(p.x, p.y, { t: 'ev', k: 'fx', fx: 'tele', id: p.id }); p.x = pt.tx; p.y = pt.ty; broadcastNear(p.x, p.y, { t: 'ev', k: 'fx', fx: 'tele', id: p.id });
     sys(p, pt.msg); if (pt.x < OVER && p.level < 14) sys(p, '⚠ 지하 묘지의 망자들은 14레벨 이상에게도 버겁습니다. 파티를 꾸려 오는 것이 좋습니다.');
   }
@@ -469,10 +477,12 @@ export function onConnection(sock) {
     }
     if (!p) return;
     if (p.dead && m.t !== 'chat') return;
-    const clearIntent = () => { p.engaged = false; p.target = null; p.pick = 0; p.pickQ = null; p.talk = null; };
+    const clearIntent = () => { p.engaged = false; p.target = null; p.pick = 0; p.pickQ = null; p.talk = null; p.amove = null; };
     if (m.t === 'move' || m.t === 'attack') p.npcOpen = null;
     switch (m.t) {
       case 'move': { const x = +m.x, y = +m.y; if (!(x >= 0 && y >= 0 && x < MAP && y < MAP)) return; clearIntent(); setPath(p, x, y); break; }
+      // attack-move: walk to the point, but fight any monster that comes within reach on the way, then carry on
+      case 'amove': { const x = +m.x, y = +m.y; if (!(x >= 0 && y >= 0 && x < MAP && y < MAP)) return; clearIntent(); p.amove = { x, y, scanT: 0 }; setPath(p, x, y); break; }
       case 'attack': { const t = ents.get(+m.id); if (!t || t === p) return; if (!canFight(p, t)) { sys(p, isSafe(p.x, p.y) || isSafe(t.x, t.y) ? '마을 안에서는 싸울 수 없습니다. 성문 밖으로 나가세요.' : isPlayer(t) && (p.level < PK_MIN || t.level < PK_MIN) ? `레벨 ${PK_MIN} 미만의 모험가는 서로 공격할 수 없습니다.` : '공격할 수 없는 대상입니다.'); return; } clearIntent(); p.target = t; p.engaged = true; break; }
       case 'stop': clearIntent(); p.path = null; break;
       case 'pick': { const d = ents.get(+m.id); if (!d || d.kind !== 'drop') return; clearIntent(); p.pickQ = null; p.pick = d.id; if (dist(p, d) > 1.2) setPath(p, d.x, d.y); break; }
@@ -488,7 +498,7 @@ export function onConnection(sock) {
       case 'use': {
         const it = p.inv[m.i | 0]; if (!it || it.id !== m.id) return; const b = ITEMS[it.id];
         if (b.type === 'potion') { if (b.heal && p.hp >= p.maxHp) return sys(p, '체력이 가득 차 있습니다.'); if (b.mana && p.mp >= p.maxMp) return sys(p, '마나가 가득 차 있습니다.'); takeItem(p, it.id); if (b.heal) p.hp = Math.min(p.maxHp, p.hp + b.heal); if (b.mana) p.mp = Math.min(p.maxMp, p.mp + b.mana); broadcastNear(p.x, p.y, { t: 'ev', k: 'fx', fx: b.heal ? 'heal' : 'mana', id: p.id, v: b.heal || b.mana }); }
-        else if (b.type === 'scroll') { takeItem(p, it.id); clearIntent(); p.path = null; p.x = SPAWN.x + (R() - .5) * 2; p.y = SPAWN.y + (R() - .5) * 2; broadcastNear(p.x, p.y, { t: 'ev', k: 'fx', fx: 'tele', id: p.id }); sys(p, '주문서가 빛나며 마을 광장으로 돌아왔습니다.'); }
+        else if (b.type === 'scroll') { takeItem(p, it.id); clearIntent(); p.path = null; p.x = SPAWN.x + (R() - .5) * 2; p.y = SPAWN.y + (R() - .5) * 2; broadcastNear(p.x, p.y, { t: 'ev', k: 'fx', fx: 'tele', id: p.id }); sys(p, '두루마리가 빛나며 마을 광장으로 돌아왔습니다.'); }
         else if (SLOTS.includes(b.type)) return equip(p, m.i | 0);
         invChanged(p); break;
       }

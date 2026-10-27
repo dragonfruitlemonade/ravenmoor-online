@@ -17,10 +17,10 @@ export const ITEMS = {
   chiefAxe:    { name: '족장의 대도끼',   type: 'weapon', atk: 36, spd: .85, price: 3200, icon: 'axe2' },
   lichCrown:   { name: '리치의 왕관',     type: 'helmet', def: 7, atk: 4, price: 5000, icon: 'helmet' },
   lichStaff:   { name: '리치의 지팡이',   type: 'weapon', atk: 42, spd: 1.0, price: 5200, icon: 'staff' },
-  // catacomb gear: the lord's set drops only from 묘지기 군주 모르바스, the helm from the abyssal knights
+  // catacomb gear: the lord's set drops only from 묘지기 모르바스, the helm from the abyssal knights
   wardenBlade: { name: '묘지기의 장검',   type: 'weapon', atk: 48, spd: 1.0, price: 6000, icon: 'sword2' },
   wardenPlate: { name: '묘지기의 판금',   type: 'armor',  def: 22, price: 6400, icon: 'armor' },
-  wardenSeal:  { name: '군주의 인장',     type: 'ring',   atk: 5, def: 3, price: 4200, icon: 'ring' },
+  wardenSeal:  { name: '묘지기의 인장',     type: 'ring',   atk: 5, def: 3, price: 4200, icon: 'ring' },
   abyssHelm:   { name: '심연의 투구',     type: 'helmet', def: 6, price: 2200, icon: 'helmet' },
   // armour
   leatherArmor:{ name: '가죽 갑옷',    type: 'armor',  def: 4,  price: 150,  icon: 'armor' },
@@ -36,7 +36,7 @@ export const ITEMS = {
   // consumables
   hpPotion:    { name: '체력 물약',    type: 'potion', heal: 80, price: 30,  stack: true, icon: 'potion_red' },
   mpPotion:    { name: '마나 물약',    type: 'potion', mana: 40, price: 40,  stack: true, icon: 'potion_blue' },
-  scroll:      { name: '귀환 주문서',  type: 'scroll', price: 50, stack: true, icon: 'scroll' },
+  scroll:      { name: '귀향 두루마리',  type: 'scroll', price: 50, stack: true, icon: 'scroll' },
   // materials
   bone:        { name: '낡은 뼈',      type: 'mat', price: 8,   stack: true, icon: 'bone' },
   rustyIron:   { name: '녹슨 철조각',  type: 'mat', price: 14,  stack: true, icon: 'iron' },
@@ -88,7 +88,7 @@ export const NPCS = [
   { id: 'v_tom',   name: '늙은 톰',   sprite: 'knight',    x: 72.5, y: 86.5, villager: true, area: [66, 82, 12, 8], lines: ['젊었을 땐 나도 기사단이었지.', '리치 왕은 남서쪽 늪에서 잠들어 있다네. 깨우지 말게.'] },
   { id: 'v_elsa',  name: '엘사',     sprite: 'mage',      x: 106.5, y: 96.5, villager: true, area: [100, 94, 10, 10], lines: ['시계탑 종소리가 나면 저녁이에요.', '예배당의 안셀 님은 죄를 씻어 주신대요.'] },
   { id: 'v_luka',  name: '짐꾼 루카', sprite: 'barbarian', x: 82.5, y: 106.5, villager: true, area: [76, 102, 14, 8], lines: ['은행에 맡기면 죽어도 안 잃어요. 꼭 맡기세요.', '동쪽 숲엔 타락한 성기사가 돌아다닌대요.'] },
-  { id: 'v_mari',  name: '마리',     sprite: 'rogue',     x: 94.5, y: 106.5, villager: true, area: [90, 102, 14, 8], lines: ['풍차 뒤편은 조용해서 좋아요.', '붉은 이름을 한 사람은 피하세요. 카오틱이에요.'] },
+  { id: 'v_mari',  name: '마리',     sprite: 'rogue',     x: 94.5, y: 106.5, villager: true, area: [90, 102, 14, 8], lines: ['풍차 뒤편은 조용해서 좋아요.', '붉은 이름을 한 사람은 피하세요. 무법자예요.'] },
   { id: 'v_olaf',  name: '나무꾼 올라프', sprite: 'barbarian', x: 88.5, y: 82.5, villager: true, area: [82, 80, 12, 6], lines: ['남쪽 강 너머엔 회색 송곳니가 살아요.', '파티를 맺으면 경험치를 나눠 가져요.'] },
 ];
 
@@ -144,8 +144,8 @@ export const QUESTS = [
   { id: 'd_elite',  giver: 'knights',  daily: true, title: '현상금: 정예 사냥', desc: '기사단이 정예 몬스터 3마리의 목에 현상금을 걸었습니다. 금색 이름의 정예를 찾아 처치하십시오. (매일 초기화)', type: 'kill', target: 'elite', n: 3, lvl: 8, reward: { gold: 700, exp: 900, items: { hpPotion: 5 } } },
   { id: 'd_mage',   giver: 'magetower', daily: true, title: '현상금: 해골 마법사', desc: '이졸데가 해골 마법사 6구의 처치를 매일 의뢰합니다. (매일 초기화)', type: 'kill', target: 'skel_mage', n: 6, lvl: 13, reward: { gold: 900, exp: 1500, items: { mpPotion: 4 } } },
   { id: 'crypt1',   giver: 'chapel',   title: '지하 묘지의 굶주린 자들', desc: '사제 안셀은 남서쪽 폐허 탑 아래 지하 묘지에서 구울이 올라온다고 합니다. 묘지 구울 10구를 처치하십시오.', type: 'kill', target: 'crypt_ghoul', n: 10, lvl: 14, reward: { gold: 1100, exp: 2800, items: { hpPotion: 5 } } },
-  { id: 'crypt2',   giver: 'knights',  title: '심연의 기사들',   desc: '지하 묘지 3층에서 심연의 기사들이 군주를 지킵니다. 8구를 쓰러뜨려 길을 여십시오.', type: 'kill', target: 'crypt_knight', n: 8, lvl: 22, reward: { gold: 2600, exp: 7000 } },
-  { id: 'cryptlord', giver: 'knights', title: '묘지기 군주',     desc: '지하 묘지 가장 깊은 방의 묘지기 군주 모르바스를 쓰러뜨리십시오. 파티를 꾸려 가는 것이 좋습니다.', type: 'kill', target: 'boss_crypt', n: 1, lvl: 26, reward: { gold: 7000, exp: 16000, items: { soulGem: 4 } } },
+  { id: 'crypt2',   giver: 'knights',  title: '심연의 기사들',   desc: '지하 묘지 3층에서 심연의 기사들이 모르바스를 지킵니다. 8구를 쓰러뜨려 길을 여십시오.', type: 'kill', target: 'crypt_knight', n: 8, lvl: 22, reward: { gold: 2600, exp: 7000 } },
+  { id: 'cryptlord', giver: 'knights', title: '묘지기 모르바스',     desc: '지하 묘지 가장 깊은 방의 묘지기 모르바스를 쓰러뜨리십시오. 파티를 꾸려 가는 것이 좋습니다.', type: 'kill', target: 'boss_crypt', n: 1, lvl: 26, reward: { gold: 7000, exp: 16000, items: { soulGem: 4 } } },
   { id: 'lich',     giver: 'magetower', title: '리치 왕',        desc: '남서쪽 늪지에 잠든 리치 왕이 깨어났습니다. 레이븐무어의 운명이 걸려 있습니다.', type: 'kill', target: 'boss_lich', n: 1, lvl: 22, reward: { gold: 4000, exp: 9000, items: { soulGem: 3 } } },
 ];
 

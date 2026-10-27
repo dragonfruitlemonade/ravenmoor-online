@@ -27,6 +27,7 @@
   <div id="invites"></div>
   <div id="notice" class="panel" hidden></div>
   <div id="tip" class="panel" hidden></div>
+  <div id="armhint" class="panel" hidden><b>공격</b> 대상을 클릭하거나, 땅을 클릭하면 싸우며 이동합니다 · <kbd>A</kbd> 한 번 더: 가장 가까운 적 · 우클릭/<kbd>Esc</kbd> 취소</div>
   <div class="panel target" id="target" hidden><div class="tn"><span id="tname"></span><em id="tlv"></em></div><div class="bar hp"><i id="thpb"></i><span id="thpt"></span></div></div>
   <div class="bottom">
     <div class="chat">
@@ -35,7 +36,7 @@
       <form id="chatform" autocomplete="off"><button type="button" id="chatch" title="Tab 키로 채널 바꾸기">일반</button><input id="chatin" maxlength="120" placeholder="Enter 키로 대화"></form>
     </div>
     <div class="right">
-      <div class="keys"><kbd>클릭</kbd> 이동·공격·줍기·대화 <kbd>Enter</kbd> 채팅 <kbd>우클릭</kbd> 상대 메뉴 <kbd>L</kbd> 순위 <kbd>Esc</kbd> 멈춤/창 닫기 <button id="adminLink" class="link" hidden>운영 페이지</button><button id="logout" class="link">로그아웃</button></div>
+      <div class="keys"><span id="ctrlhint"></span> <kbd>Enter</kbd> 채팅 <kbd>L</kbd> 순위 <kbd>Esc</kbd> 멈춤/창 닫기 <button id="adminLink" class="link" hidden>운영 페이지</button><button id="logout" class="link">로그아웃</button></div>
       <div id="hotbar">
         <button class="hk atk" data-key="a"><kbd>A</kbd><small>공격</small></button>
         <button class="hk" data-key="h"><kbd>H</kbd><small>치유</small><i class="cd" id="cdH"></i></button>
@@ -43,7 +44,7 @@
         <button class="hk" data-key="d"><kbd>D</kbd><small id="sk2Name">기술2</small><i class="cd" id="cdD"></i></button>
         <button class="hk" data-key="1"><kbd>1</kbd><small>HP 물약</small><span class="cnt" id="n1">0</span></button>
         <button class="hk" data-key="2"><kbd>2</kbd><small>MP 물약</small><span class="cnt" id="n2">0</span></button>
-        <button class="hk" data-key="3"><kbd>3</kbd><small>귀환</small><span class="cnt" id="n3">0</span></button>
+        <button class="hk" data-key="3"><kbd>3</kbd><small>귀향</small><span class="cnt" id="n3">0</span></button>
         <button class="hk" data-key="z"><kbd>Z</kbd><small>줍기</small></button>
         <button class="hk" data-key="i"><kbd>I</kbd><small>가방</small></button>
         <button class="hk" data-key="e"><kbd>E</kbd><small>장비</small></button>

@@ -24,11 +24,11 @@ export const CRYPT_ENTRANCE = { x: 52, y: 136 };                 // overworld, s
 export const PORTALS = [
   { x: 52, y: 136, tx: 214.5, ty: 12.5, msg: '어둡고 축축한 계단을 따라 지하 묘지로 내려갑니다…' },
   { x: 210, y: 9, tx: 52.5, ty: 138.5, msg: '지상으로 올라왔습니다.' },
-  { x: 225, y: 163, tx: 52.5, ty: 138.5, msg: '군주의 방 뒤편 통로를 따라 지상으로 올라왔습니다.' },
+  { x: 225, y: 163, tx: 52.5, ty: 138.5, msg: '안식처 뒤편 통로를 따라 지상으로 올라왔습니다.' },
 ];
 export const portalAt = (x, y) => { const tx = Math.floor(x), ty = Math.floor(y); return PORTALS.find(p => p.x === tx && p.y === ty) || null; };
 export const cryptFloor = y => y < 60 ? 1 : y < 116 ? 2 : y < 150 ? 3 : 4;
-export const CRYPT_FLOOR_NAME = ['', '1층 · 납골 회랑', '2층 · 망자의 예배실', '3층 · 심연의 통로', '군주의 방'];
+export const CRYPT_FLOOR_NAME = ['', '1층 · 납골 회랑', '2층 · 망자의 예배실', '3층 · 심연의 통로', '모르바스의 안식처'];
 
 export function rng(seed) { let a = seed | 0; return () => { a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
 function h2(x, y) { let h = (x * 374761393 + y * 668265263) | 0; h = (h ^ (h >>> 13)) * 1274126177 | 0; return ((h ^ (h >>> 16)) >>> 0) / 4294967296; }
@@ -77,7 +77,7 @@ export const MONSTERS = {
   crypt_guard:  { name: '납골당 파수병', level: 18, hp: 560, atk: 72, def: 18, exp: 260, gold: [40, 70],  speed: 2.5, aggro: 6, crypt: [60, 114],  count: 14, sprite: 'crypt_guard' },
   crypt_priest: { name: '망자의 사제',   level: 21, hp: 520, atk: 84, def: 14, exp: 320, gold: [50, 85],  speed: 2.4, aggro: 7, crypt: [70, 146],  count: 10, sprite: 'crypt_priest', ranged: 4.5 },
   crypt_knight: { name: '심연의 기사',   level: 24, hp: 900, atk: 92, def: 24, exp: 450, gold: [70, 120], speed: 2.6, aggro: 7, crypt: [116, 146], count: 12, sprite: 'crypt_knight' },
-  boss_crypt:   { name: '묘지기 군주 모르바스', level: 30, hp: 7000, atk: 105, def: 28, exp: 9000, gold: [900, 1500], speed: 2.6, aggro: 9, fixed: [225.5, 156.5], count: 1, boss: true, sprite: 'crypt_lord', scale: 1.9, respawn: 600000,
+  boss_crypt:   { name: '묘지기 모르바스', level: 30, hp: 7000, atk: 105, def: 28, exp: 9000, gold: [900, 1500], speed: 2.6, aggro: 9, fixed: [225.5, 156.5], count: 1, boss: true, sprite: 'crypt_lord', scale: 1.9, respawn: 600000,
     skills: [{ k: 'slam', cd: 9000, mul: 2.6, r: 2.4, wind: 1000 }, { k: 'summon', cd: 22000, mob: 'crypt_ghoul' }, { k: 'charge', cd: 11000, mul: 2.0 }, { k: 'regen', cd: 30000 }] },
 };
 

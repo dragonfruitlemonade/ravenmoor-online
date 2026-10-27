@@ -49,7 +49,7 @@ export function adminCommand(p, text, ctx) {
     case '/아이템': { const id = args[0]; if (!ITEMS[id]) { sys(p, '아이템 ID: ' + Object.keys(ITEMS).join(', ')); break; } const n = Math.max(1, Math.min(99, +args[1] || 1)); addItem(p, { id, n, enh: 0 }); invChanged(p); logEvent('give', p.name, p.name, { id, n }); sys(p, `${ITEMS[id].name} ×${n} 지급`); break; }
     case '/금화': { const n = Math.floor(+args[0] || 0); p.gold = Math.max(0, p.gold + n); invChanged(p); logEvent('gold', p.name, p.name, n); break; }
     case '/레벨': { const n = Math.max(1, Math.min(60, +args[0] || 1)); let t = p; if (args[1]) { t = findPlayerByName(args[1]); if (!t) { sys(p, '접속 중인 그런 이름이 없습니다.'); break; } } t.level = n; t.exp = 0; applyStats(t, true); bump(t); t.saveDirty = true; sys(t, `레벨 ${n}`); if (t !== p) sys(p, `${t.name}: 레벨 ${n}`); break; }
-    case '/접속자': { const list = [...ents.values()].filter(e => e.kind === 'player').map(e => `${e.name}(Lv${e.level}${e.align < 0 ? ',카오틱' : ''})`); sys(p, `접속 ${list.length}명: ${list.join(', ')}`); break; }
+    case '/접속자': { const list = [...ents.values()].filter(e => e.kind === 'player').map(e => `${e.name}(Lv${e.level}${e.align < 0 ? ',무법자' : ''})`); sys(p, `접속 ${list.length}명: ${list.join(', ')}`); break; }
     case '/날씨': { const w = { '맑음': 0, '비': 1, '안개': 2 }[args[0]]; if (w === undefined) { sys(p, '사용법: /날씨 맑음|비|안개'); break; } ctx.setWeather(w); sys(p, `날씨: ${args[0]}`); break; }
     case '/습격': { sys(p, ctx.startRaid(true) ? '습격을 시작했습니다.' : '이미 습격이 진행 중입니다.'); break; }
     case '/몬스터': { const type = args[0]; if (!MONSTERS[type]) { sys(p, '종류: ' + Object.keys(MONSTERS).join(', ')); break; } const m = spawnMonster(type, p.x + 2, p.y); m.temp = true; sys(p, `${m.name} 소환`); break; }
