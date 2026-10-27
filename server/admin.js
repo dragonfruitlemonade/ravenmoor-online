@@ -34,12 +34,12 @@ function parseDur(s) { const m = /^(\d+)(분|시간|일)$/.exec(s || ''); return
 export function adminCommand(p, text, ctx) {
   const { sys, broadcastAll, findPlayerByName, ents, addItem, invChanged, applyStats, bump, MONSTERS, spawnMonster } = ctx;
   const [cmd, ...args] = text.trim().split(/\s+/); const a = args.join(' ');
-  const ADMIN_CMDS = ['/공지', '/킥', '/차단', '/차단해제', '/텔레포트', '/소환', '/아이템', '/금화', '/레벨', '/접속자', '/몬스터', '/습격', '/날씨', '/도움'];
+  const ADMIN_CMDS = ['/공지', '/킥', '/차단', '/차단해제', '/텔레포트', '/소환', '/아이템', '/금화', '/레벨', '/접속자', '/몬스터', '/습격', '/날씨', '/처치', '/체력', '/도움'];
   if (!ADMIN_CMDS.includes(cmd)) return false;
   if (!isAdmin(p.name)) { sys(p, '관리자만 쓸 수 있는 명령입니다.'); return true; }
   const target = () => { const t = findPlayerByName(args[0] || ''); if (!t) sys(p, '접속 중인 그런 이름이 없습니다.'); return t; };
   switch (cmd) {
-    case '/도움': sys(p, '관리자: /공지 글 · /킥 이름 · /차단 이름 [10분|2시간|3일] [사유] · /차단해제 이름 · /텔레포트 이름|x y · /소환 이름 · /아이템 아이템ID [수] · /금화 수 · /레벨 수 · /접속자 · /몬스터 종류 · /습격 · /날씨 맑음|비|안개'); break;
+    case '/도움': sys(p, '관리자: /공지 글 · /킥 이름 · /차단 이름 [10분|2시간|3일] [사유] · /차단해제 이름 · /텔레포트 이름|x y · /소환 이름 · /아이템 아이템ID [수] · /금화 수 · /레벨 수 · /접속자 · /몬스터 종류 · /습격 · /날씨 맑음|비|안개 · /처치 · /체력 퍼센트 (선택한 몬스터, 없으면 가까운 보스·몬스터)'); break;
     case '/공지': if (!a) return true; broadcastAll({ t: 'chat', notice: true, msg: a }); logEvent('notice', p.name, null, a); break;
     case '/킥': { const t = target(); if (!t) break; sys(t, '관리자가 연결을 끊었습니다.'); t.client.sock.close(); logEvent('kick', p.name, t.name); sys(p, `${t.name} 내보냄`); break; }
     case '/차단': { const name = args[0]; if (!name) break; const dur = parseDur(args[1]); const reason = (dur ? args.slice(2) : args.slice(1)).join(' ') || null; q.ban.run(name, reason, p.name, dur ? Date.now() + dur : null, Date.now()); const t = findPlayerByName(name); if (t) { sys(t, `차단되었습니다${reason ? ': ' + reason : ''}.`); t.client.sock.close(); } logEvent('ban', p.name, name, { dur, reason }); sys(p, `${name} 차단 (${dur ? args[1] : '영구'})`); break; }
@@ -52,6 +52,8 @@ export function adminCommand(p, text, ctx) {
     case '/접속자': { const list = [...ents.values()].filter(e => e.kind === 'player').map(e => `${e.name}(Lv${e.level}${e.align < 0 ? ',무법자' : ''})`); sys(p, `접속 ${list.length}명: ${list.join(', ')}`); break; }
     case '/날씨': { const w = { '맑음': 0, '비': 1, '안개': 2 }[args[0]]; if (w === undefined) { sys(p, '사용법: /날씨 맑음|비|안개'); break; } ctx.setWeather(w); sys(p, `날씨: ${args[0]}`); break; }
     case '/습격': { sys(p, ctx.startRaid(true) ? '습격을 시작했습니다.' : '이미 습격이 진행 중입니다.'); break; }
+    case '/처치': { const m = ctx.adminTarget(p); if (!m) { sys(p, '근처에 몬스터가 없습니다.'); break; } ctx.kill(m, p); logEvent('akill', p.name, m.name); sys(p, ` 처치`); break; }
+    case '/체력': { const m = ctx.adminTarget(p); if (!m) { sys(p, '근처에 몬스터가 없습니다.'); break; } const pct = Math.max(1, Math.min(100, +args[0] || 100)); m.hp = Math.round(m.maxHp * pct / 100); sys(p, ` 체력 %`); break; }
     case '/몬스터': { const type = args[0]; if (!MONSTERS[type]) { sys(p, '종류: ' + Object.keys(MONSTERS).join(', ')); break; } const m = spawnMonster(type, p.x + 2, p.y); m.temp = true; sys(p, `${m.name} 소환`); break; }
   }
   return true;

@@ -3,7 +3,7 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 const PORT = 18000 + Math.floor(Math.random() * 1000), DATA = '/tmp/rmtest-' + PORT;
-const startServer = () => { const s = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/index.js'], { env: { ...process.env, PORT, DATA_DIR: DATA }, stdio: ['ignore', 'pipe', 'inherit'] }); return new Promise(r => s.stdout.once('data', () => r(s))); };
+const startServer = () => { const s = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/index.js'], { env: { ...process.env, PORT, DATA_DIR: DATA, INSTANCE_IDLE_MS: 4000 }, stdio: ['ignore', 'pipe', 'inherit'] }); return new Promise(r => s.stdout.once('data', () => r(s))); };
 let srv = await startServer();
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const api = async (path, body) => { const r = await fetch(`http://127.0.0.1:${PORT}${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }); return [r.status, await r.json()]; };
@@ -229,9 +229,9 @@ A.send({ t: 'chat', msg: '/습격' }); await sleep(600); check(A.said('이미 �
   A.send({ t: 'attack', id: mg?.[0] }); for (let i = 0; i < 30 && !A.evs.some(e => e.k === 'die' && e.id === mg?.[0]); i++) await sleep(300);
   // taunt: once 도전의 함성 is ready again it forces a fresh monster onto you and fills grit; then it hits you
   for (let i = 0; i < 140 && A.me[25] && A.me[25].challenge; i++) await sleep(100);
-  A.send({ t: 'stop' }); await sleep(300); A.send({ t: 'chat', msg: '/몬스터 skel_warrior' }); await sleep(600);
+  A.send({ t: 'stop' }); await sleep(300); A.evs.length = 0; A.send({ t: 'chat', msg: '/몬스터 skel_warrior' }); await sleep(600);   // watch from the spawn: it may swing before the taunt
   const war = fresh('skel_warrior');
-  const g0 = A.me[2]; A.evs.length = 0; A.send({ t: 'cast', id: 'challenge' }); await sleep(500);
+  const g0 = A.me[2]; A.send({ t: 'cast', id: 'challenge' }); await sleep(500);
   check(war && (A.ents.get(war[0])?.[6] & 64) && A.me[2] >= g0 + 15, `challenge taunts the monster (status ${war && A.ents.get(war[0])?.[6]}) and adds grit (${g0} -> ${A.me[2]})`);
   check(await waitEv(e => e.k === 'dmg' && e.a === war?.[0] && e.b === A.id, 4000), 'the taunted monster attacks the taunter');
   A.send({ t: 'attack', id: war?.[0] }); for (let i = 0; i < 30 && !A.evs.some(e => e.k === 'die' && e.id === war?.[0]); i++) await sleep(300);
@@ -263,6 +263,68 @@ A.send({ t: 'chat', msg: '/습격' }); await sleep(600); check(A.said('이미 �
   for (const id of ['k_edge', 'k_edge', 'k_fury']) { A.send({ t: 'talent', id }); await sleep(150); }
   A.send({ t: 'chat', msg: '/레벨 11' }); await sleep(900);
   check(A.said('특성 점수가 줄어') && tal && !Object.keys(tal.talents).length, 'losing levels below the points spent clears talents');
+}
+// instanced dungeon 잿빛 수도원: a copy per party, three bosses with mechanics, personal loot with weekly lockouts, difficulty, cleanup
+{
+  const WD = await import('../shared/world.js'); const RL = await import('../shared/rules.js');
+  const say = async (b, msg) => { b.send({ t: 'chat', msg }); await sleep(650); };
+  const slotOf = b => { const q = b.pos(); return q ? WD.instanceAt(q[0], q[1]) : -1; };
+  const sees = (b, sprite) => [...b.ents.keys()].map(id => b.meta.get(id)).filter(m => m && m[1] === 2 && m[3] === sprite);
+  const E = WD.ABBEY_ENTRANCE; const health = async () => (await fetch(`http://127.0.0.1:${PORT}/health`)).json();
+  const tp = async (b, s, dx, dy) => say(b, `/텔레포트 ${s.x0 + dx + .5} ${s.y0 + dy + .5}`);
+  // gathering at the entrance; a level-6 player is turned away
+  await say(A, '/레벨 40'); await say(A, `/텔레포트 ${E.x + .5} ${E.y + 3.5}`); await say(A, '/소환 도적베스'); await sleep(300);
+  B.send({ t: 'move', x: E.x + 1.5, y: E.y + .5 }); await sleep(2000);
+  check(B.said('레벨 26부터') && slotOf(B) < 0, 'a low-level player is turned away at the 어려움 stairs');
+  await say(A, '/레벨 30 도적베스'); B.send({ t: 'move', x: E.x + .5, y: E.y + 3.5 }); await sleep(1500);
+  B.chat.length = 0; await say(A, '/파티 초대 도적베스'); B.send({ t: 'paccept' }); await sleep(600);
+  check(A.me[21] && A.me[21] === B.me[21], 'A and B form a party for the dungeon');
+  // A takes the 보통 stairs and gets a fresh copy; B takes the 어려움 stairs but joins the party's copy
+  A.chat.length = 0; A.send({ t: 'move', x: E.x - .5, y: E.y + .5 }); await sleep(2200);
+  const slot = slotOf(A); const S = WD.ABBEY_SLOTS[slot];
+  check(slot >= 0 && A.said('잿빛 수도원(보통)에 들어왔습니다') && (await health()).instances === 1, `the 보통 stairs open a private copy (slot ${slot})`);
+  B.send({ t: 'move', x: E.x + 1.5, y: E.y + .5 }); await sleep(2200);
+  check(slotOf(B) === slot && B.said('일행의 수도원은 보통'), 'a party member lands in the same copy, whatever stairs they take');
+  await sleep(600); const aMons = [...A.ents.keys()].map(id => A.meta.get(id)).filter(m => m && m[1] === 2).map(m => m[3]);
+  check(aMons.length && aMons.every(s => s.startsWith('abbey_')), `only the copy's own monsters are visible inside (${[...new Set(aMons)].join(',')})`);
+  // boss 1 — 엘로드: hurt, he casts an interruptible self-heal that lands if nobody stops it
+  A.evs.length = 0; await tp(A, S, 10, 22); await say(A, '/체력 70'); const monk = sees(A, 'abbey_monk')[0];
+  A.send({ t: 'attack', id: monk?.[0] }); let heal = false, cast = false;
+  for (let i = 0; i < 70 && !heal; i++) { await sleep(100); cast = cast || A.evs.some(e => e.k === 'cast' && e.id === monk?.[0] && e.n === '어둠의 기도' && e.intr); heal = A.evs.some(e => e.k === 'fx' && e.fx === 'heal' && e.id === monk?.[0] && e.v > 0); }
+  check(cast, '엘로드 starts 어둠의 기도 (an interruptible cast) once hurt');
+  check(heal, 'left uninterrupted, 어둠의 기도 heals him');
+  const inv0 = A.inv.inv.length; A.chat.length = 0; B.chat.length = 0; await say(A, '/처치'); await sleep(500);
+  check(A.said('🎁 타락한 수도사 엘로드 보상') && B.said('🎁 타락한 수도사 엘로드 보상') && A.inv.inv.some(x => RL.ABBEY_LOOT.boss_monk.includes(x.id)) && A.said('보스 1/3'), 'every party member inside gets a personal boss reward');
+  // boss 2 — 고르막: burning puddles appear under players
+  A.evs.length = 0; await tp(A, S, 30, 30); const bell = sees(A, 'abbey_bell')[0]; A.send({ t: 'attack', id: bell?.[0] });
+  let haz = false; for (let i = 0; i < 40 && !haz; i++) { await sleep(100); haz = A.evs.some(e => e.k === 'fx' && e.fx === 'hazard' && e.warn > 0 && e.life > 0); }
+  check(haz, '고르막 drops burning puddles (warning first, then fire) under players');
+  await say(A, '/처치');
+  // boss 3 — 바르테스: at 70% he wards himself behind guardians; immune until they fall
+  A.evs.length = 0; await tp(A, S, 13, 36); await say(A, '/체력 65'); const abbot = sees(A, 'abbey_abbot')[0]; A.send({ t: 'attack', id: abbot?.[0] });
+  let ward = false; for (let i = 0; i < 40 && !ward; i++) { await sleep(100); ward = A.evs.some(e => e.k === 'fx' && e.fx === 'ward' && e.id === abbot?.[0]); }
+  await sleep(1200); const guards = sees(A, 'abbey_guard');
+  check(ward && guards.length >= 3 && (A.ents.get(abbot?.[0])?.[6] & 128), `바르테스 wards himself and calls ${guards.length} guardians`);
+  check(A.evs.some(e => e.k === 'dmg' && e.b === abbot?.[0] && e.imm), 'hits on the warded abbot do nothing (면역)');
+  for (const g of guards) { A.send({ t: 'attack', id: g[0] }); await sleep(150); await say(A, '/처치'); }
+  let unward = false; for (let i = 0; i < 30 && !unward; i++) { await sleep(100); unward = A.evs.some(e => e.k === 'fx' && e.fx === 'unward' && e.id === abbot?.[0]); }
+  check(unward, 'the ward breaks once every guardian is down');
+  A.send({ t: 'attack', id: abbot?.[0] }); await sleep(200); A.chat.length = 0; await say(A, '/처치'); await sleep(400);
+  check(A.said('정복했습니다') && A.said('수도원 정복자'), 'clearing all three bosses conquers the abbey (and earns its title)');
+  // leaving: empty copies are wiped after the idle time; coming back this week gives no second reward
+  await tp(A, S, 18, 4); A.send({ t: 'move', x: S.x0 + WD.ABBEY.exit[0] + .5, y: S.y0 + WD.ABBEY.exit[1] + .5 }); B.send({ t: 'move', x: S.x0 + WD.ABBEY.exit[0] + .5, y: S.y0 + WD.ABBEY.exit[1] + .5 }); await sleep(4000);
+  check(slotOf(A) < 0 && slotOf(B) < 0 && A.said('수도원 밖으로'), 'the exit stairs lead back out');
+  await sleep(5500); check((await health()).instances === 0, 'an empty copy is cleaned up after the idle time');
+  // 어려움: B (still standing at the stairs) takes the right-hand stairs and gets a copy whose monsters are tougher
+  B.chat.length = 0; B.send({ t: 'move', x: E.x + 1.5, y: E.y + .5 }); await sleep(2500); await sleep(800);
+  const bSlot = slotOf(B), hm = sees(B, 'abbey_monk')[0];
+  check(bSlot >= 0 && B.said('잿빛 수도원(어려움)'), `the 어려움 stairs open a 어려움 copy (slot ${bSlot}; ${B.chat.slice(-2).join(' / ')})`);
+  check(hm && hm[6] === Math.round(WD.MONSTERS.boss_monk.hp * RL.DIFFICULTY.hard.hp) && hm[4] === WD.MONSTERS.boss_monk.level + 2, `어려움 bosses have more health and levels (${hm && hm[6]} HP, Lv ${hm && hm[4]})`);
+  A.send({ t: 'pleave' }); await sleep(400); A.chat.length = 0; A.send({ t: 'move', x: E.x - .5, y: E.y + .5 }); await sleep(2500);
+  const s2 = WD.ABBEY_SLOTS[slotOf(A)]; await tp(A, s2, 10, 22); await say(A, '/처치'); await sleep(400);
+  check(A.said('이번 주에 이미') && !A.said('🎁'), 'weekly lockout: the same boss gives nothing more this week');
+  check(slotOf(A) >= 0 && slotOf(A) !== slotOf(B), `after leaving the party, A's solo copy is separate from B's (${slotOf(A)} vs ${slotOf(B)})`);
+  B.send({ t: 'use', i: B.inv.inv.findIndex(x => x.id === 'scroll'), id: 'scroll' }); A.send({ t: 'use', i: A.inv.inv.findIndex(x => x.id === 'scroll'), id: 'scroll' }); await sleep(800);
 }
 const health = await (await fetch(`http://127.0.0.1:${PORT}/health`)).json();
 check(health.players === 2 && health.monsters > 90, `health ${JSON.stringify(health)}`);

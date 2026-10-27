@@ -1,7 +1,8 @@
 // Authoritative game world. The server decides movement, combat, items, shops and rewards;
 // clients only send intentions (move / attack / use item / buy ...).
-import { MAP, OVER, TOWN, SPAWN, CX, CY, GATES, VIEW_RADIUS, TICK_HZ, SNAP_HZ, MONSTERS, LOOKS, DUNGEON, buildWorld, isSafe, portalAt, findPath, expNeed, dirOf, rng } from '../shared/world.js';
+import { MAP, OVER, TOWN, SPAWN, CX, CY, GATES, VIEW_RADIUS, TICK_HZ, SNAP_HZ, MONSTERS, LOOKS, DUNGEON, ABBEY, ABBEY_SLOTS, ABBEY_SPAWNS, instanceAt, buildWorld, isSafe, portalAt, findPath, expNeed, dirOf, rng } from '../shared/world.js';
 import { TITLES, TITLE_BY, titleName, ITEMS, SLOTS, INV_SIZE, DROPS, NPCS, CLASSES, CLASS_LEVEL, ADV, ADV_LEVEL, ADV_OF, classInfo, statsFor, itemStats, ENH_RATE, enhCost, sellPrice, itemName, BANK_SIZE, QUESTS,
+  ABBEY_LOOT, DIFFICULTY, weekKey,
   SKILLS, GCD, RESOURCES, MAX_CUTS, resourceOf, skillsFor, skillRange, TALENT_BY, talentPoints, talentBlock, talentMods, spentTotal, talentResetCost, effSkill, baseClass } from '../shared/rules.js';
 import { accountForToken, loadCharacter, saveCharacter } from './db.js';
 import { createSocial } from './social.js';
@@ -172,6 +173,7 @@ function damage(b, dmg, a, crit, thr = 1) {
   if (b.dead) return;
   const btm = tmOf(b);
   if (btm.dodge && a && R() < btm.dodge) { b.combatT = now(); broadcastNear(b.x, b.y, { t: 'ev', k: 'dmg', b: b.id, v: 0, a: a.id, miss: 1 }); return; }   // 받아넘기기·날렵함·은총
+  if (b.invuln) { broadcastNear(b.x, b.y, { t: 'ev', k: 'dmg', b: b.id, v: 0, a: a ? a.id : 0, imm: 1 }); return; }   // warded boss
   if (b.fx && b.fx.bulwark > now()) dmg = Math.max(1, Math.round(dmg * (1 - (b.bulwarkReduce || .4))));
   if (b.fx && b.fx.shroud > now()) dmg = Math.max(1, Math.round(dmg * .5));
   let ab = 0; if (b.shield > 0 && b.shieldT > now()) { ab = Math.min(b.shield, dmg); b.shield -= ab; dmg -= ab; }
@@ -202,7 +204,8 @@ function kill(b, a) {
       social.shareExp(a, m.exp * mul, gainExp); questKill(a, b.type, b.elite);
       if (social.partyOf(a)) for (const mm of social.partyOf(a).members) if (mm !== a && !mm.dead && dist(mm, a) <= 22) questKill(mm, b.type, b.elite);
       a.stats.mkills = (a.stats.mkills || 0) + 1; if (m.boss) { a.stats.bossKills = (a.stats.bossKills || 0) + 1; if (social.partyOf(a)) for (const mm of social.partyOf(a).members) if (mm !== a && dist(mm, a) <= 22) { mm.stats.bossKills = (mm.stats.bossKills || 0) + 1; checkTitles(mm); } } checkTitles(a);
-      if (m.boss) broadcastAll({ t: 'chat', sys: true, msg: `👑 ${a.name}이(가) ${m.name}을(를) 쓰러뜨렸습니다!` });
+      if (m.boss && b.inst == null) broadcastAll({ t: 'chat', sys: true, msg: `👑 ${a.name}이(가) ${m.name}을(를) 쓰러뜨렸습니다!` });
+      if (m.boss && b.inst != null) instanceBoss(b);
       if (b.raid && raid) { raid.part.add(a.accountId); if (social.partyOf(a)) for (const mm of social.partyOf(a).members) if (dist(mm, a) <= 22) raid.part.add(mm.accountId); raid.left--; raidCheck(); }
     }
   } else if (isPlayer(b)) {
@@ -417,8 +420,11 @@ export { social };
 // ── AI
 function bossAI(e, t, dt) {
   const m = MONSTERS[e.type];
+  // the abbot's ward drops once every guardian he called is dead
+  if (e.invuln && !(e.guards || []).some(g => !g.dead && ents.get(g.id) === g)) { e.invuln = false; broadcastNear(e.x, e.y, { t: 'ev', k: 'fx', fx: 'unward', id: e.id }); for (const o of near(e.x, e.y, 20, isPlayer)) sys(o, `${e.name}의 결계가 깨졌습니다!`); }
   if (e.cast) { const c = e.cast; if (now() < c.until) { e.moving = false; return true; } e.cast = null;
-    if (c.k === 'slam' || c.k === 'bolt') broadcastNear(e.x, e.y, { t: 'ev', k: 'castend', id: e.id, cut: 0 });
+    if (c.k === 'slam' || c.k === 'bolt' || c.k === 'darkmend') broadcastNear(e.x, e.y, { t: 'ev', k: 'castend', id: e.id, cut: 0 });
+    if (c.k === 'darkmend') { const h = Math.round(e.maxHp * c.heal); e.hp = Math.min(e.maxHp, e.hp + h); broadcastNear(e.x, e.y, { t: 'ev', k: 'fx', fx: 'heal', id: e.id, v: h }); }
     // a dark bolt finishes: big hit on whoever it was aimed at, if they're still in reach
     if (c.k === 'bolt') { const o = ents.get(c.tid); if (o && !o.dead && canFight(e, o) && dist(e, o) <= e.range + 2.5) { broadcastNear(e.x, e.y, { t: 'ev', k: 'atk', a: e.id, b: o.id, r: 1 }); const [d] = rollDamage(e, o, c.mul); setTimeout(() => { if (!o.dead && canFight(e, o)) damage(o, d, e, true); }, 120 + dist(e, o) * 60); } }
     if (c.k === 'slam') { broadcastNear(e.x, e.y, { t: 'ev', k: 'fx', fx: 'slam', x: e.x, y: e.y, r: c.r }); for (const o of near(e.x, e.y, c.r + .5, x => canFight(e, x))) if (dist(e, o) <= c.r + .4) { const [d] = rollDamage(e, o, c.mul); damage(o, d, e, true); } }
@@ -432,12 +438,24 @@ function bossAI(e, t, dt) {
   for (const s of m.skills) {
     if ((e.sk[s.k] || 0) > now()) continue;
     if (s.k === 'slam' && d <= s.r + .3) { e.sk[s.k] = now() + s.cd; e.cast = { k: 'slam', until: now() + s.wind, r: s.r, mul: s.mul }; e.path = null; face(e, t); broadcastNear(e.x, e.y, { t: 'ev', k: 'fx', fx: 'tele_slam', id: e.id, x: e.x, y: e.y, r: s.r, ms: s.wind }); broadcastNear(e.x, e.y, { t: 'ev', k: 'cast', id: e.id, n: s.name || '내려찍기', ms: s.wind, intr: 0 }); return true; }
+    // 어둠의 기도: once hurt, a long self-heal that must be interrupted
+    if (s.k === 'darkmend' && e.hp < e.maxHp * .85 && !(e.silencedT > now())) { e.sk[s.k] = now() + s.cd; e.cast = { k: 'darkmend', until: now() + s.wind, heal: s.heal, intr: true }; e.path = null; e.moving = false; broadcastNear(e.x, e.y, { t: 'ev', k: 'cast', id: e.id, n: s.name, ms: s.wind, intr: 1 }); return true; }
+    // 불타는 종유: a warning ring under up to n players, then a burning puddle for `life` ms — spread out and step away
+    if (s.k === 'puddle') { e.sk[s.k] = now() + s.cd; const tg = near(e.x, e.y, 14, o => isPlayer(o) && canFight(e, o)).sort(() => R() - .5).slice(0, s.n + (e.hard ? 1 : 0));
+      for (const o of tg) { const h = { x: o.x, y: o.y, r: s.r, start: now() + s.warn, end: now() + s.warn + s.life, pct: s.pct, src: e, slot: e.inst, next: 0 }; hazards.push(h); broadcastNear(h.x, h.y, { t: 'ev', k: 'fx', fx: 'hazard', x: h.x, y: h.y, r: h.r, warn: s.warn, life: s.life }); }
+      if (tg.length) broadcastNear(e.x, e.y, { t: 'ev', k: 'fx', fx: 'roar', id: e.id, x: e.x, y: e.y }); return false; }
+    // 결계: at each health threshold, call guardians and become immune until they all fall
+    if (s.k === 'adds') { const ph = e.phase || 0; if (ph < s.at.length && e.hp <= e.maxHp * s.at[ph]) { e.phase = ph + 1; e.invuln = true; e.guards = [];
+      for (let i = 0; i < s.n + (e.hard ? 1 : 0); i++) { const a = (i / s.n) * Math.PI * 2; let gx = e.x + Math.cos(a) * 2.5, gy = e.y + Math.sin(a) * 2.5; if (W.monsterBlock[Math.floor(gy) * MAP + Math.floor(gx)]) { gx = e.x; gy = e.y; } const g = spawnMonster(s.mob, gx, gy); g.target = t; if (e.inst != null) adoptMonster(e.inst, g); else g.temp = true; e.guards.push(g); }
+      broadcastNear(e.x, e.y, { t: 'ev', k: 'fx', fx: 'ward', id: e.id }); for (const o of near(e.x, e.y, 20, isPlayer)) sys(o, `${e.name}이(가) 결계를 쳤습니다! 결계 수호자를 모두 쓰러뜨리세요.`); return false; } continue; }
+    // 격노: a long fight makes him hit 30% harder for good
+    if (s.k === 'enrage') { if (!e.enraged && e.fightStart && now() - e.fightStart > s.after) { e.enraged = true; e.fx.rage = Infinity; broadcastNear(e.x, e.y, { t: 'ev', k: 'fx', fx: 'roar', id: e.id, x: e.x, y: e.y }); for (const o of near(e.x, e.y, 20, isPlayer)) sys(o, `${e.name}이(가) 격노합니다!`); } continue; }
     // interruptible spell: a visible cast bar; 방패 강타·마력 차단·꾸짖음·목 치기 cut it (and lock the caster out for 3 s)
     if (s.k === 'bolt' && d <= e.range + 1.5 && !(e.silencedT > now())) { e.sk[s.k] = now() + s.cd; e.cast = { k: 'bolt', until: now() + s.wind, mul: s.mul, tid: t.id, intr: true }; e.path = null; e.moving = false; face(e, t); broadcastNear(e.x, e.y, { t: 'ev', k: 'cast', id: e.id, n: s.name, ms: s.wind, intr: 1 }); return true; }
     if (s.k === 'charge' && d >= 2.5 && d <= 8) { e.sk[s.k] = now() + s.cd; e.cast = { k: 'charge', until: now() + 500, tx: t.x, ty: t.y, mul: s.mul }; e.path = null; face(e, t); broadcastNear(e.x, e.y, { t: 'ev', k: 'fx', fx: 'tele_charge', id: e.id, x: t.x, y: t.y, ms: 500 }); return true; }
     if (s.k === 'roar' && d <= s.r) { e.sk[s.k] = now() + s.cd; broadcastNear(e.x, e.y, { t: 'ev', k: 'fx', fx: 'roar', id: e.id, x: e.x, y: e.y }); for (const o of near(e.x, e.y, s.r, x => canFight(e, x))) if (dist(e, o) <= s.r) { o.stunT = now() + 1500; o.path = null; broadcastNear(o.x, o.y, { t: 'ev', k: 'fx', fx: 'stun', id: o.id }); } return false; }
-    if (s.k === 'howl' && d <= 7) { e.sk[s.k] = now() + s.cd; e.fx.rage = now() + 8000; broadcastNear(e.x, e.y, { t: 'ev', k: 'fx', fx: 'roar', id: e.id, x: e.x, y: e.y }); for (let i = 0; i < 2; i++) { const w = spawnMonster('skel_minion', e.x + (R() - .5) * 2, e.y + (R() - .5) * 2); w.temp = true; w.target = t; } return false; }
-    if (s.k === 'summon' && d <= 9) { e.sk[s.k] = now() + s.cd; broadcastNear(e.x, e.y, { t: 'ev', k: 'fx', fx: 'summon', id: e.id, x: e.x, y: e.y }); for (let i = 0; i < 3; i++) { let sx = e.x + (R() - .5) * 3, sy = e.y + (R() - .5) * 3; if (W.monsterBlock[Math.floor(sy) * MAP + Math.floor(sx)]) { sx = e.x; sy = e.y; } const w = spawnMonster(s.mob || 'skel_warrior', sx, sy); w.temp = true; w.target = t; } return false; }
+    if (s.k === 'howl' && d <= 7) { e.sk[s.k] = now() + s.cd; e.fx.rage = now() + 8000; broadcastNear(e.x, e.y, { t: 'ev', k: 'fx', fx: 'roar', id: e.id, x: e.x, y: e.y }); for (let i = 0; i < 2; i++) { const w = spawnMonster('skel_minion', e.x + (R() - .5) * 2, e.y + (R() - .5) * 2); w.temp = true; w.target = t; if (e.inst != null) adoptMonster(e.inst, w); } return false; }
+    if (s.k === 'summon' && d <= 9) { e.sk[s.k] = now() + s.cd; broadcastNear(e.x, e.y, { t: 'ev', k: 'fx', fx: 'summon', id: e.id, x: e.x, y: e.y }); for (let i = 0; i < 3; i++) { let sx = e.x + (R() - .5) * 3, sy = e.y + (R() - .5) * 3; if (W.monsterBlock[Math.floor(sy) * MAP + Math.floor(sx)]) { sx = e.x; sy = e.y; } const w = spawnMonster(s.mob || 'skel_warrior', sx, sy); w.temp = true; w.target = t; if (e.inst != null) adoptMonster(e.inst, w); } return false; }
     if (s.k === 'lunge' && d >= 1.8 && d <= 4.5) { e.sk[s.k] = now() + s.cd; const dx = t.x - e.x, dy = t.y - e.y; const nx = t.x - dx / d, ny = t.y - dy / d; if (!W.monsterBlock[Math.floor(ny) * MAP + Math.floor(nx)]) { e.x = nx; e.y = ny; } face(e, t); broadcastNear(e.x, e.y, { t: 'ev', k: 'atk', a: e.id, b: t.id, r: 0 }); const [dm] = rollDamage(e, t, s.mul); damage(t, dm, e, true); return true; }
     if (s.k === 'regen' && e.hp < e.maxHp * .6) { e.sk[s.k] = now() + s.cd; const h = Math.round(e.maxHp * .15); e.hp = Math.min(e.maxHp, e.hp + h); broadcastNear(e.x, e.y, { t: 'ev', k: 'fx', fx: 'heal', id: e.id, v: h }); return false; }
   }
@@ -458,10 +476,11 @@ function pickTarget(e) {
 function monsterAI(e, dt) {
   if (e.stunT > now()) { e.moving = false; return; }
   const m = MONSTERS[e.type]; const leash = Math.hypot(e.x - e.sx, e.y - e.sy);
-  if (leash > 15 && !e.returning) { e.target = null; e.threat = null; e.tauntBy = null; e.cast = null; e.returning = true; setPath(e, e.sx, e.sy); }
+  if (leash > 15 && !e.returning) { e.target = null; e.threat = null; e.tauntBy = null; e.cast = null; e.returning = true; e.fightStart = 0; e.enraged = false; e.phase = 0; e.invuln = false; if (e.fx.rage === Infinity) e.fx.rage = 0; setPath(e, e.sx, e.sy); }
   if (e.returning) { step(e, dt); if (!e.path) { e.returning = false; e.hp = e.maxHp; } return; }
   e.target = pickTarget(e);
   if (!e.target) { let best = null, bd = m.aggro; for (const p of near(e.x, e.y, m.aggro, isPlayer)) { const d = dist(e, p); if (d < bd && canFight(e, p)) { bd = d; best = p; } } e.target = best; if (best) addThreat(e, best, 1); }
+  if (e.target && !e.fightStart) e.fightStart = now(); else if (!e.target) e.fightStart = 0;
   if (e.target) { if (m.skills && bossAI(e, e.target, dt)) return; pursue(e, e.target, dt); return; }
   e.cast = null; e.charging = null;
   if (e.hp < e.maxHp) e.hp = Math.min(e.maxHp, e.hp + e.maxHp * .03 * dt);
@@ -501,8 +520,11 @@ function playerTick(p, dt) {
     if (!p.engaged) step(p, dt);
   }
   // portals (crypt entrance / exits): stepping onto one moves you; a short cooldown stops ping-ponging
-  const pt = portalAt(p.x, p.y);
-  if (pt && now() > (p.portalT || 0)) {
+  // a portal fires when you step onto its tile, not again while you keep standing there (e.g. after being turned away)
+  const tileKey = Math.floor(p.x) * 1024 + Math.floor(p.y), stepped = tileKey !== p.lastTile; p.lastTile = tileKey;
+  const pt = stepped ? portalAt(p.x, p.y) : null;
+  if (pt && pt.inst && now() > (p.portalT || 0)) { p.portalT = now() + 1500; enterInstance(p, pt.inst); }
+  else if (pt && now() > (p.portalT || 0)) {
     p.portalT = now() + 1500; p.path = null; p.engaged = false; p.target = null; p.pick = 0; p.pickQ = null; p.talk = null; p.amove = null;
     broadcastNear(p.x, p.y, { t: 'ev', k: 'fx', fx: 'tele', id: p.id }); p.x = pt.tx; p.y = pt.ty; broadcastNear(p.x, p.y, { t: 'ev', k: 'fx', fx: 'tele', id: p.id });
     sys(p, pt.msg); if (pt.x < OVER && p.level < 14) sys(p, '⚠ 지하 묘지의 망자들은 14레벨 이상에게도 버겁습니다. 파티를 꾸려 오는 것이 좋습니다.');
@@ -539,12 +561,67 @@ function raidCheck() {
 setInterval(() => { if (raid) raidCheck(); else if (now() >= nextRaid) { if (!startRaid()) nextRaid = now() + 5 * 60000; } }, 5000).unref();
 export const raidInfo = () => raid ? { gate: raid.gate.dir, left: raid.left, until: raid.until } : null;
 
-let lastSnap = 0, lastSave = 0;
+// ── instanced dungeon (잿빛 수도원): one copy per party, or per player when solo. A copy keeps its monsters (never respawned)
+// until nobody has been inside for INSTANCE_IDLE ms, then it is wiped and its slot freed.
+const INSTANCE_IDLE = +process.env.INSTANCE_IDLE_MS || 120000;
+const instances = new Map();   // slot -> { slot, key, diff, mons:Set, killed:Set, emptySince }
+const hazards = [];            // burning puddles: { x, y, r, start, end, pct, src, slot, next }
+const instKey = p => { const pt = social.partyOf(p); return pt ? 'party:' + pt.id : 'solo:' + p.accountId; };
+const playersIn = slot => [...ents.values()].filter(e => isPlayer(e) && instanceAt(e.x, e.y) === slot);
+function adoptMonster(slot, m) { const inst = instances.get(slot); if (!inst) return; m.inst = slot; m.temp = true; inst.mons.add(m); }
+function enterInstance(p, diff) {
+  if (p.level < ABBEY.minLevel[diff]) return sys(p, `${ABBEY.name}(${DIFFICULTY[diff].name})은 레벨 ${ABBEY.minLevel[diff]}부터 들어갈 수 있습니다.`);
+  const key = instKey(p); let inst = [...instances.values()].find(i => i.key === key);
+  if (inst && inst.diff !== diff) sys(p, `일행의 수도원은 ${DIFFICULTY[inst.diff].name} 난이도로 열려 있어 그곳으로 들어갑니다.`);
+  if (!inst) {
+    const slot = ABBEY_SLOTS.findIndex((_, i) => !instances.has(i)); if (slot < 0) return sys(p, '모든 수도원이 사용 중입니다. 잠시 뒤 다시 시도하세요.');
+    inst = { slot, key, diff, mons: new Set(), killed: new Set(), emptySince: 0 }; instances.set(slot, inst);
+    const s = ABBEY_SLOTS[slot], d = DIFFICULTY[diff];
+    for (const [type, dx, dy] of ABBEY_SPAWNS) { const m = spawnMonster(type, s.x0 + dx + .5, s.y0 + dy + .5); m.maxHp = m.hp = Math.round(m.maxHp * d.hp); m.atk = Math.round(m.atk * d.atk); m.level += d.lv; m.hard = diff === 'hard'; adoptMonster(slot, m); }
+    logEvent('instance', p.name, null, { slot, diff, key });
+  }
+  const s = ABBEY_SLOTS[inst.slot]; p.path = null; p.engaged = false; p.target = null; p.amove = null; if (p.casting) cancelCast(p);
+  broadcastNear(p.x, p.y, { t: 'ev', k: 'fx', fx: 'tele', id: p.id }); p.x = s.x0 + ABBEY.entry[0]; p.y = s.y0 + ABBEY.entry[1]; inst.emptySince = 0;
+  sys(p, `${ABBEY.name}(${DIFFICULTY[inst.diff].name})에 들어왔습니다. 보스 ${inst.killed.size}/3 처치. 입구 옆 보라색 계단으로 나갈 수 있습니다.`);
+}
+function destroyInstance(inst) {
+  for (const m of inst.mons) ents.delete(m.id);
+  for (const e of [...ents.values()]) if (e.kind === 'drop' && instanceAt(e.x, e.y) === inst.slot) ents.delete(e.id);
+  for (let i = hazards.length - 1; i >= 0; i--) if (hazards[i].slot === inst.slot) hazards.splice(i, 1);
+  instances.delete(inst.slot);
+}
+function instanceTick() {
+  for (const inst of [...instances.values()]) { if (playersIn(inst.slot).length) inst.emptySince = 0; else if (!inst.emptySince) inst.emptySince = now(); else if (now() - inst.emptySince > INSTANCE_IDLE) destroyInstance(inst); }
+  // puddles: harmless while the warning ring shows, then burn everyone standing in them once a second
+  for (let i = hazards.length - 1; i >= 0; i--) { const h = hazards[i]; if (now() > h.end) { hazards.splice(i, 1); continue; } if (now() < h.start || now() < h.next) continue; h.next = now() + 1000;
+    for (const o of near(h.x, h.y, h.r + .5, isPlayer)) if (!o.dead && Math.hypot(o.x - h.x, o.y - h.y) <= h.r) damage(o, Math.max(1, Math.round(o.maxHp * h.pct)), h.src && !h.src.dead ? h.src : null, false); }
+}
+// a boss of the instance falls: everyone inside gets their own reward, once per boss + difficulty + week
+function instanceBoss(b) {
+  const inst = instances.get(b.inst); if (!inst) return; inst.killed.add(b.type);
+  const d = DIFFICULTY[inst.diff], wk = weekKey(), lock = `${inst.diff}:${b.type}`, inside = playersIn(inst.slot);
+  for (const p of inside) {
+    p.stats.lockouts = p.stats.lockouts || {};
+    if (p.stats.lockouts[lock] === wk) { sys(p, `이번 주에 이미 ${b.name}의 보상(${d.name})을 받았습니다. 월요일에 초기화됩니다.`); continue; }
+    p.stats.lockouts[lock] = wk; const pool = ABBEY_LOOT[b.type]; const it = { id: pool[Math.floor(R() * pool.length)], n: 1, enh: d.enh ? 1 + Math.floor(R() * d.enh) : 0 };
+    const g = Math.round((300 + 200 * inst.killed.size) * d.gold); p.gold += g; if (!addItem(p, it)) spawnDrop(p.x, p.y, it, 0, p);
+    if (inst.diff === 'hard') addItem(p, { id: 'soulGem', n: 2 });
+    invChanged(p); p.saveDirty = true; sys(p, `🎁 ${b.name} 보상: ${itemName(it)} · 금화 ${g}${inst.diff === 'hard' ? ' · 영혼석 2' : ''}`);
+  }
+  for (const p of inside) sys(p, inst.killed.size >= 3 ? `🏆 ${ABBEY.name}(${d.name})을 정복했습니다!` : `${b.name} 처치 — 보스 ${inst.killed.size}/3`);
+  if (inst.killed.size >= 3) for (const p of inside) { p.stats.abbeyClears = (p.stats.abbeyClears || 0) + 1; checkTitles(p); }
+}
+export const instanceCount = () => instances.size;
+// admin tools act on your selected monster, else the nearest boss (or monster) within 12 tiles
+function adminTarget(p) { if (p.target && isMonster(p.target) && !p.target.dead && ents.get(p.target.id) === p.target) return p.target;
+  const ms = near(p.x, p.y, 12, e => isMonster(e) && !e.dead).sort((a, b) => (b.boss - a.boss) || dist(p, a) - dist(p, b)); return ms[0] || null; }
+let lastSnap = 0, lastSave = 0, lastInst = 0;
 setInterval(() => { for (const c of [...clients]) { if (!c.player && now() - c.lastMsg > 20000) { c.sock.close(); continue; } if (now() - c.sock.lastPong > 45000 && now() - c.lastMsg > 45000) { c.sock.close(); continue; } c.sock.ping(); } }, 15000).unref();
 const perf = { tickMs: 0, maxMs: 0, n: 0 }; let lastTick = performance.now();
 setInterval(() => {
   // advance by the real elapsed time: timers fire late (Windows ~62ms for 50ms, or a busy server), and a fixed step would slow the whole world down
   const t0 = performance.now(); const DT = Math.min(.1, Math.max(.001, (t0 - lastTick) / 1000)); lastTick = t0; rebuildGrid();
+  if (now() - lastInst >= 250) { lastInst = now(); instanceTick(); }
   const players = [...ents.values()].filter(isPlayer);
   for (const e of [...ents.values()]) {
     if (isPlayer(e)) { playerTick(e, DT); if (!e.dead) effectsTick(e); continue; }
@@ -578,14 +655,15 @@ function snapshot(c) {
   const gone = []; for (const id of c.known.keys()) if (!seen.has(id)) { gone.push(id); c.known.delete(id); c.last.delete(id); }
   const t = now(), cds = {}; for (const [k, v] of Object.entries(p.cds)) if (v > t) cds[k] = v - t;
   const buffs = []; if (p.fx.bless > t) buffs.push(['bless', p.fx.bless - t]); if (p.fx.bulwark > t) buffs.push(['bulwark', p.fx.bulwark - t]); if (p.shield > 0 && p.shieldT > t) buffs.push(['shield', p.shieldT - t]); if (p.fx.bleed > t) buffs.push(['bleed', p.fx.bleed - t]); if (p.fx.slow > t) buffs.push(['slow', p.fx.slow - t]); if (p.stunT > t) buffs.push(['stun', p.stunT - t]); if (p.fx.shroud > t) buffs.push(['shroud', p.fx.shroud - t]); if (p.freeNext) buffs.push(['clear', 0]);
-  c.sock.send(JSON.stringify({ t: 'snap', s: t, e: list, m: metas, g: gone, day: +dayPhase().toFixed(4), w: weather, qm: questMarks(p), raid: raid ? [raid.gate.dir, raid.left, Math.max(0, Math.round((raid.until - t) / 1000))] : 0,
+  c.sock.send(JSON.stringify({ t: 'snap', s: t, e: list, m: metas, g: gone, day: +dayPhase().toFixed(4), w: weather, qm: questMarks(p), raid: raid ? [raid.gate.dir, raid.left, Math.max(0, Math.round((raid.until - t) / 1000))] : 0, ins: insInfo(p),
     // me: 0 hp 1 maxHp 2 res 3 maxRes 4 lv 5 exp 6 need 7 gold 8 atk 9 def 10 honour 11 cls 12-14 (unused) 15 atkSpeed 16 range 17 kills 18-19 (unused) 20 blessed 21 party
     //     22 resource kind 23 칼자국 24 global cooldown left 25 {skill: cooldown left} 26 [skill, left, total] while casting 27 [[buff, left]] 28 shield
     me: [Math.ceil(p.hp), p.maxHp, Math.floor(p.mp), p.maxMp, p.level, p.exp, expNeed(p.level), p.gold, p.atk, p.def, p.align, p.cls, 0, 0, 0, p.atkSpeed, p.range, p.kills, 0, 0, p.fx.bless > t ? 1 : 0, p.partyId || 0,
       p.res, p.cuts || 0, Math.max(0, (p.gcd || 0) - t), cds, p.casting ? [p.casting.id, Math.max(0, p.casting.until - t), p.casting.total] : 0, buffs, p.shieldT > t ? p.shield : 0] }));
 }
-// status flags shown on every unit: 1 stunned 2 bleeding 4 slowed 8 shielded 16 bulwark 32 blessed 64 taunted
-function statusBits(e) { const t = now(), f = e.fx || {}; return (e.stunT > t ? 1 : 0) | (f.bleed > t ? 2 : 0) | (f.slow > t ? 4 : 0) | (e.shield > 0 && e.shieldT > t ? 8 : 0) | (f.bulwark > t ? 16 : 0) | (f.bless > t ? 32 : 0) | (e.tauntBy && e.tauntUntil > t ? 64 : 0); }
+// status flags shown on every unit: 1 stunned 2 bleeding 4 slowed 8 shielded 16 bulwark 32 blessed 64 taunted 128 warded (immune)
+function insInfo(p) { const sl = instanceAt(p.x, p.y); const inst = sl >= 0 && instances.get(sl); return inst ? [DIFFICULTY[inst.diff].name, inst.killed.size, 3] : 0; }
+function statusBits(e) { const t = now(), f = e.fx || {}; return (e.stunT > t ? 1 : 0) | (f.bleed > t ? 2 : 0) | (f.slow > t ? 4 : 0) | (e.shield > 0 && e.shieldT > t ? 8 : 0) | (f.bulwark > t ? 16 : 0) | (f.bless > t ? 32 : 0) | (e.tauntBy && e.tauntUntil > t ? 64 : 0) | (e.invuln ? 128 : 0); }
 
 // ── connections
 const online = new Map();   // accountId -> player
@@ -650,7 +728,7 @@ export function onConnection(sock) {
       case 'chat': {
         const text = String(m.msg || '').slice(0, 160).trim(); if (!text || now() - c.chatT < 500) return; c.chatT = now();
         if (text[0] === '/') {
-          if (adminCommand(p, text, { sys, broadcastAll, findPlayerByName, ents, addItem, invChanged, applyStats, bump, MONSTERS, spawnMonster, startRaid, setWeather })) return;
+          if (adminCommand(p, text, { sys, broadcastAll, findPlayerByName, ents, addItem, invChanged, applyStats, bump, MONSTERS, spawnMonster, startRaid, setWeather, kill, adminTarget })) return;
           const [cmd, ...args] = text.split(/\s+/); const rest = args.join(' ');
           if (cmd === '/귓' || cmd === '/w') { if (args.length < 2) return sys(p, '사용법: /귓 이름 내용'); social.whisper(p, args[0], args.slice(1).join(' ')); }
           else if (cmd === '/파티' || cmd === '/p') { if (args.length < 1) return sys(p, '사용법: /파티 초대 이름 · /파티 수락 · /파티 나가기 · /파티 추방 이름 · /파티 내용(파티 채팅)'); const sub = args[0]; if (sub === '초대') social.invite(p, args[1]); else if (sub === '수락') social.accept(p); else if (sub === '나가기' || sub === '탈퇴') social.leaveParty(p); else if (sub === '추방') social.kick(p, args[1] || ''); else social.partyChat(p, rest); }
@@ -701,4 +779,4 @@ function equip(p, i, id) {
 import { leaderboard } from './admin.js';
 function leaderboardRows() { return leaderboard(20).map(r => ({ name: r.name, level: r.level, cls: r.cls, kills: r.kills, align: r.align, online: !!findPlayerByName(r.name) })); }
 export function saveAll() { for (const e of ents.values()) if (isPlayer(e)) try { saveCharacter(e); } catch {} }
-export function stats() { let players = 0, monsters = 0, drops = 0; for (const e of ents.values()) { if (isPlayer(e)) players++; else if (isMonster(e)) monsters++; else if (e.kind === 'drop') drops++; } return { players, monsters, drops, tickMs: +perf.tickMs.toFixed(2), tickMaxMs: +perf.maxMs.toFixed(1), mem: Math.round(process.memoryUsage().rss / 1048576) }; }
+export function stats() { let players = 0, monsters = 0, drops = 0; for (const e of ents.values()) { if (isPlayer(e)) players++; else if (isMonster(e)) monsters++; else if (e.kind === 'drop') drops++; } return { players, monsters, drops, instances: instances.size, tickMs: +perf.tickMs.toFixed(2), tickMaxMs: +perf.maxMs.toFixed(1), mem: Math.round(process.memoryUsage().rss / 1048576) }; }

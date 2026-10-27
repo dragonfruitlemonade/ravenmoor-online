@@ -2,7 +2,7 @@
 // Everything here must be deterministic so both sides build the identical map.
 
 export const OVER = 176;                                          // overworld is 0..OVER-1 on both axes
-export const MAP = 256;                                           // full grid: overworld + the underground strip to the east
+export const MAP = 320;                                           // full grid: overworld, the catacomb strip to the east, instance slots to the south
 export const TILE_W = 64, TILE_H = 32;
 export const TOWN = { x0: 64, y0: 64, x1: 112, y1: 112 };        // wall ring, inclusive (48×48)
 export const CX = 88, CY = 88;                                   // town centre (plaza fountain)
@@ -11,7 +11,7 @@ export const GATES = [ { x: 88, y: TOWN.y1, sprite: 'gate_x', dir: 'S' }, { x: T
 export const VIEW_RADIUS = 26;                                   // tiles sent to each client
 export const TICK_HZ = 20, SNAP_HZ = 10;
 
-export const G = { GRASS: 0, DIRT: 1, ROAD: 2, COBBLE: 3, WATER: 4, SAND: 5, DARK: 6, ASH: 7, BRIDGE: 8, CRYPT: 9, VOID: 10 };
+export const G = { GRASS: 0, DIRT: 1, ROAD: 2, COBBLE: 3, WATER: 4, SAND: 5, DARK: 6, ASH: 7, BRIDGE: 8, CRYPT: 9, VOID: 10, ABBEY: 11 };
 
 // ── the catacombs: a chain of rooms carved into the strip east of the overworld. It sits more than VIEW_RADIUS
 // tiles from any overworld tile, so snapshots and broadcasts never mix the two. Deeper (further south) = stronger.
@@ -26,6 +26,18 @@ export const PORTALS = [
   { x: 210, y: 9, tx: 52.5, ty: 138.5, msg: '지상으로 올라왔습니다.' },
   { x: 225, y: 163, tx: 52.5, ty: 138.5, msg: '안식처 뒤편 통로를 따라 지상으로 올라왔습니다.' },
 ];
+// ── instanced dungeon 잿빛 수도원: ten identical copies ("slots") in two rows along the south edge, each more than
+// VIEW_RADIUS from everything else. A party (or a solo player) gets a slot of its own; the server hands them out.
+export const ABBEY = { name: '잿빛 수도원', w: 40, h: 44, minLevel: { normal: 20, hard: 26 }, entry: [20.5, 4.5], exit: [16, 2] };
+export const ABBEY_SLOTS = [204, 275].flatMap(y0 => [4, 72, 140, 208, 276].map(x0 => ({ x0, y0 })));
+export const ABBEY_ROOMS = [[20, 4, 10, 6], [20, 13, 14, 8], [8, 22, 12, 10], [30, 22, 10, 8], [30, 32, 12, 10], [14, 37, 22, 12]];   // [cx, cy, w, h] in slot coordinates
+export const ABBEY_ENTRANCE = { x: 97, y: 36 };                  // overworld, east of the north road
+// who lives in each copy, in slot coordinates (bosses: chapel, bell tower, abbot's hall)
+export const ABBEY_SPAWNS = [['abbey_acolyte', 17, 12], ['abbey_brute', 23, 12], ['abbey_brute', 20, 15], ['boss_monk', 8, 22],
+  ['abbey_brute', 28, 21], ['abbey_acolyte', 32, 23], ['abbey_brute', 31, 20], ['boss_bell', 30, 33], ['abbey_acolyte', 21, 33], ['abbey_brute', 18, 31], ['boss_abbot', 11, 38]];
+export const instanceAt = (x, y) => { for (let i = 0; i < ABBEY_SLOTS.length; i++) { const s = ABBEY_SLOTS[i]; if (x >= s.x0 - 3 && x <= s.x0 + ABBEY.w + 3 && y >= s.y0 - 3 && y <= s.y0 + ABBEY.h + 3) return i; } return -1; };
+PORTALS.push({ x: ABBEY_ENTRANCE.x - 1, y: ABBEY_ENTRANCE.y, inst: 'normal' }, { x: ABBEY_ENTRANCE.x + 1, y: ABBEY_ENTRANCE.y, inst: 'hard' },
+  ...ABBEY_SLOTS.map(s => ({ x: s.x0 + ABBEY.exit[0], y: s.y0 + ABBEY.exit[1], tx: ABBEY_ENTRANCE.x + .5, ty: ABBEY_ENTRANCE.y + 3.5, msg: '수도원 밖으로 나왔습니다.' })));
 export const portalAt = (x, y) => { const tx = Math.floor(x), ty = Math.floor(y); return PORTALS.find(p => p.x === tx && p.y === ty) || null; };
 export const cryptFloor = y => y < 60 ? 1 : y < 116 ? 2 : y < 150 ? 3 : 4;
 export const CRYPT_FLOOR_NAME = ['', '1층 · 납골 회랑', '2층 · 망자의 예배실', '3층 · 심연의 통로', '모르바스의 안식처'];
@@ -79,6 +91,19 @@ export const MONSTERS = {
   crypt_knight: { name: '심연의 기사',   level: 24, hp: 900, atk: 92, def: 24, exp: 450, gold: [70, 120], speed: 2.6, aggro: 7, crypt: [116, 146], count: 12, sprite: 'crypt_knight' },
   boss_crypt:   { name: '묘지기 모르바스', level: 30, hp: 7000, atk: 105, def: 28, exp: 9000, gold: [900, 1500], speed: 2.6, aggro: 9, fixed: [225.5, 156.5], count: 1, boss: true, sprite: 'crypt_lord', scale: 1.9, respawn: 600000,
     skills: [{ k: 'slam', cd: 9000, mul: 2.6, r: 2.4, wind: 1000 }, { k: 'bolt', name: '영혼 수확', cd: 15000, wind: 2500, mul: 3.5 }, { k: 'summon', cd: 22000, mob: 'crypt_ghoul' }, { k: 'charge', cd: 11000, mul: 2.0 }, { k: 'regen', cd: 30000 }] },
+  // 잿빛 수도원 (instance only: count 0, the server spawns them per copy and never respawns them; 어려움 scales them up)
+  abbey_acolyte: { name: '타락한 수련사', level: 22, hp: 520, atk: 70, def: 14, exp: 300, gold: [40, 70], speed: 2.5, aggro: 7, count: 0, inst: true, sprite: 'abbey_acolyte', ranged: 4.5, skills: [{ k: 'bolt', name: '타락의 화살', cd: 8000, wind: 1800, mul: 2.0 }] },
+  abbey_brute:   { name: '수도원 파수꾼', level: 23, hp: 800, atk: 82, def: 20, exp: 360, gold: [45, 80], speed: 2.7, aggro: 6, count: 0, inst: true, sprite: 'abbey_brute' },
+  abbey_guard:   { name: '결계 수호자',   level: 24, hp: 650, atk: 64, def: 16, exp: 150, gold: [10, 20], speed: 2.7, aggro: 14, count: 0, inst: true, sprite: 'abbey_guard' },
+  // boss 1: heals itself unless you interrupt 어둠의 기도
+  boss_monk:  { name: '타락한 수도사 엘로드', level: 26, hp: 9000, atk: 95, def: 22, exp: 6000, gold: [500, 800], speed: 2.6, aggro: 9, count: 0, inst: true, boss: true, sprite: 'abbey_monk', scale: 1.6, ranged: 4.5,
+    skills: [{ k: 'darkmend', name: '어둠의 기도', cd: 14000, wind: 3000, heal: .2 }, { k: 'bolt', name: '저주의 화살', cd: 7000, wind: 1600, mul: 2.2 }] },
+  // boss 2: burning puddles under players (spread out), telegraphed slam
+  boss_bell:  { name: '종지기 고르막', level: 27, hp: 12000, atk: 110, def: 26, exp: 8000, gold: [600, 900], speed: 2.4, aggro: 9, count: 0, inst: true, boss: true, sprite: 'abbey_bell', scale: 1.8,
+    skills: [{ k: 'puddle', name: '불타는 종유', cd: 10000, n: 2, r: 1.8, warn: 1500, life: 8000, pct: .07 }, { k: 'slam', name: '종 내려치기', cd: 12000, mul: 2.4, r: 2.2, wind: 1200 }] },
+  // boss 3: wards himself behind guardians at 70% and 35%, interruptible 심판의 빛, enrages after 3 minutes
+  boss_abbot: { name: '수도원장 바르테스', level: 28, hp: 18000, atk: 120, def: 28, exp: 14000, gold: [900, 1400], speed: 2.5, aggro: 10, count: 0, inst: true, boss: true, sprite: 'abbey_abbot', scale: 1.9,
+    skills: [{ k: 'adds', at: [.7, .35], n: 3, mob: 'abbey_guard' }, { k: 'enrage', after: 180000 }, { k: 'slam', name: '정화의 일격', cd: 11000, mul: 2.5, r: 2.3, wind: 1100 }, { k: 'bolt', name: '심판의 빛', cd: 13000, wind: 2200, mul: 3.0 }] },
 };
 
 export const LOOKS = { knight: '기사', barbarian: '야만전사', rogue: '도적', mage: '마법사' };
@@ -153,9 +178,13 @@ export function buildWorld() {
   { const e = CRYPT_ENTRANCE; for (let y = e.y - 4; y <= e.y + 4; y++) for (let x = e.x - 4; x <= e.x + 4; x++) { ground[idx(x, y)] = Math.max(Math.abs(x - e.x), Math.abs(y - e.y)) <= 2 ? G.CRYPT : G.DIRT; block[idx(x, y)] = 0; }
     objects.push({ key: 'tower', x: e.x - 1.5, y: e.y - 2 }, { key: 'rock_b', x: e.x + 2.5, y: e.y - 1.5 }, { key: 'rock_d', x: e.x - 2.5, y: e.y + 1.5 }, { key: 'flag', x: e.x + 1.5, y: e.y + 2.5 });
     for (const [x, y] of [[e.x - 2, e.y - 2], [e.x - 1, e.y - 2], [e.x - 2, e.y - 3], [e.x - 1, e.y - 3], [e.x + 2, e.y - 2], [e.x - 3, e.y + 1]]) block[idx(x, y)] = 1; }
+  // abbey entrance: a paved yard before a ruined chapel, two stairs down (left 보통, right 어려움)
+  { const e = ABBEY_ENTRANCE; for (let y = e.y - 4; y <= e.y + 4; y++) for (let x = e.x - 4; x <= e.x + 4; x++) { ground[idx(x, y)] = Math.abs(x - e.x) <= 3 && Math.abs(y - e.y) <= 2 ? G.ABBEY : G.DIRT; block[idx(x, y)] = 0; }
+    objects.push({ key: 'church', x: e.x + .5, y: e.y - 3 }, { key: 'flag', x: e.x - 2.5, y: e.y + 1.5 }, { key: 'flag', x: e.x + 3.5, y: e.y + 1.5 });
+    for (let y = e.y - 4; y <= e.y - 2; y++) for (let x = e.x - 1; x <= e.x + 1; x++) block[idx(x, y)] = 1; }
 
   // wilderness
-  const free = (x, y, r) => { for (let yy = y - r; yy <= y + r; yy++) for (let xx = x - r; xx <= x + r; xx++) { if (xx < 0 || yy < 0 || xx >= OVER || yy >= OVER) return false; if (Math.abs(xx - CRYPT_ENTRANCE.x) <= 5 && Math.abs(yy - CRYPT_ENTRANCE.y) <= 5) return false; if (block[idx(xx, yy)]) return false; const g = ground[idx(xx, yy)]; if (g === G.ROAD || g === G.WATER || g === G.BRIDGE || g === G.COBBLE) return false; } return true; };
+  const free = (x, y, r) => { for (let yy = y - r; yy <= y + r; yy++) for (let xx = x - r; xx <= x + r; xx++) { if (xx < 0 || yy < 0 || xx >= OVER || yy >= OVER) return false; if (Math.abs(xx - CRYPT_ENTRANCE.x) <= 5 && Math.abs(yy - CRYPT_ENTRANCE.y) <= 5) return false; if (Math.abs(xx - ABBEY_ENTRANCE.x) <= 6 && Math.abs(yy - ABBEY_ENTRANCE.y) <= 6) return false; if (block[idx(xx, yy)]) return false; const g = ground[idx(xx, yy)]; if (g === G.ROAD || g === G.WATER || g === G.BRIDGE || g === G.COBBLE) return false; } return true; };
   for (let y = 2; y < OVER - 2; y++) for (let x = 2; x < OVER - 2; x++) {
     const d = Math.max(Math.abs(x + .5 - cx), Math.abs(y + .5 - cy)); if (d < 27) continue;
     const g = ground[idx(x, y)]; const r = R();
@@ -192,6 +221,24 @@ export function buildWorld() {
     if (touch) objects.push({ key: 'cwall', x: x + .5, y: y + .5 }); }
   // wall torches on the back (north) wall of every room — the client lights them at all times
   for (const r of rooms) for (const x of [r.x0 + 1, r.x1 - 1]) objects.push({ key: 'ctorch', x: x + .5, y: r.y0 - .5 });
+
+  // 잿빛 수도원: the same rooms-and-corridors carving, once per instance slot, in warm abbey stone
+  for (const s of ABBEY_SLOTS) {
+    const ab = ABBEY_ROOMS.map(([rx, ry, w, h]) => ({ x0: s.x0 + rx - (w >> 1), y0: s.y0 + ry - (h >> 1), x1: s.x0 + rx - (w >> 1) + w - 1, y1: s.y0 + ry - (h >> 1) + h - 1, cx: s.x0 + rx, cy: s.y0 + ry }));
+    const af = (x, y) => { ground[idx(x, y)] = G.ABBEY; block[idx(x, y)] = 0; };
+    for (const r of ab) for (let y = r.y0; y <= r.y1; y++) for (let x = r.x0; x <= r.x1; x++) af(x, y);
+    for (let i = 1; i < ab.length; i++) { const a = ab[i - 1], b = ab[i];
+      for (let x = Math.min(a.cx, b.cx) - 1; x <= Math.max(a.cx, b.cx) + 1; x++) for (let k = -1; k <= 1; k++) af(x, a.cy + k);
+      for (let y = Math.min(a.cy, b.cy) - 1; y <= Math.max(a.cy, b.cy) + 1; y++) for (let k = -1; k <= 1; k++) af(b.cx + k, y); }
+    // pillars line the long hall and the abbot's hall; a few crates in the side room
+    for (const [dx, dy] of [[14, 10], [26, 10], [14, 16], [26, 16], [4, 33], [24, 33], [4, 41], [24, 41]]) { block[idx(s.x0 + dx, s.y0 + dy)] = 1; objects.push({ key: 'cpillar', x: s.x0 + dx + .5, y: s.y0 + dy + .5 }); }
+    for (const [k, dx, dy] of [['crate', 26, 19], ['barrel', 34, 24], ['sack', 26, 24]]) { block[idx(s.x0 + dx, s.y0 + dy)] = 1; objects.push({ key: k, x: s.x0 + dx + .5, y: s.y0 + dy + .5 }); }
+    for (let y = s.y0 - 1; y <= s.y0 + ABBEY.h; y++) for (let x = s.x0 - 1; x <= s.x0 + ABBEY.w; x++) {
+      if (ground[idx(x, y)] === G.ABBEY) continue; let touch = false;
+      for (let dy = -1; dy <= 1 && !touch; dy++) for (let dx = -1; dx <= 1; dx++) if (ground[idx(x + dx, y + dy)] === G.ABBEY) { touch = true; break; }
+      if (touch) objects.push({ key: 'cwall', x: x + .5, y: y + .5 }); }
+    for (const r of ab) for (const x of [r.x0 + 1, r.x1 - 1]) objects.push({ key: 'ctorch', x: x + .5, y: r.y0 - .5 });
+  }
 
   for (let i = 0; i < N; i++) { if (ground[i] === G.WATER) block[i] = 1; monsterBlock[i] = block[i]; }
   for (const p of PORTALS) monsterBlock[idx(p.x, p.y)] = 1;      // monsters never step onto (or follow you through) a portal

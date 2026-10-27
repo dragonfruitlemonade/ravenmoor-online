@@ -1,5 +1,5 @@
 // Ravenmoor Online client: renders the shared map and baked 3D sprites, sends intentions to the server.
-import { MAP, OVER, TILE_W as TW, TILE_H as TH, G, TOWN, CX, CY, GATES, BUILDINGS, LOOKS, DUNGEON, PORTALS, CRYPT_FLOOR_NAME, buildWorld, isSafe, inDungeon, cryptFloor, noise } from '/shared/world.js';
+import { MAP, OVER, TILE_W as TW, TILE_H as TH, G, TOWN, CX, CY, GATES, BUILDINGS, LOOKS, DUNGEON, PORTALS, CRYPT_FLOOR_NAME, ABBEY, ABBEY_SLOTS, buildWorld, isSafe, inDungeon, instanceAt, cryptFloor, noise } from '/shared/world.js';
 import { ITEMS, CLASSES, classInfo, SKILLS, GCD, RESOURCES, MAX_CUTS, skillsFor, skillCostText, talentPoints, spentTotal, treesFor, effSkill, talentMods } from '/shared/rules.js';
 import { createUI, iconSrc } from '/client/ui.js';
 import { initAudio, toggleMute, isMuted, sfx, sfxAt, setAmbience } from '/client/audio.js';
@@ -28,8 +28,8 @@ for (const k of ['knight', 'barbarian', 'rogue', 'mage']) { img(MF.characters[k]
 // ───────────────────────── ground textures
 const GCOL = { [G.GRASS]: [[96, 112, 52], [126, 138, 66]], [G.DIRT]: [[132, 106, 70], [158, 134, 92]], [G.ROAD]: [[146, 124, 86], [170, 148, 104]], [G.COBBLE]: [[120, 116, 108], [150, 144, 132]],
   [G.WATER]: [[40, 84, 120], [58, 106, 144]], [G.SAND]: [[176, 158, 116], [196, 178, 134]], [G.DARK]: [[62, 80, 44], [86, 100, 54]], [G.ASH]: [[118, 84, 60], [146, 108, 74]], [G.BRIDGE]: [[110, 82, 52], [140, 106, 70]],
-  [G.CRYPT]: [[46, 46, 52], [86, 84, 92]], [G.VOID]: [[8, 7, 7], [14, 12, 11]] };
-const ORDER = [G.DARK, G.DIRT, G.ASH, G.SAND, G.ROAD, G.WATER, G.COBBLE, G.BRIDGE, G.CRYPT];
+  [G.CRYPT]: [[46, 46, 52], [86, 84, 92]], [G.VOID]: [[8, 7, 7], [14, 12, 11]], [G.ABBEY]: [[78, 66, 54], [128, 112, 94]] };
+const ORDER = [G.DARK, G.DIRT, G.ASH, G.SAND, G.ROAD, G.WATER, G.COBBLE, G.BRIDGE, G.CRYPT, G.ABBEY];
 // periodic value noise so textures tile seamlessly
 function ph(x, y, P) { x = ((x % P) + P) % P; y = ((y % P) + P) % P; let h = (x * 374761393 + y * 668265263) | 0; h = (h ^ (h >>> 13)) * 1274126177 | 0; return ((h ^ (h >>> 16)) >>> 0) / 4294967296; }
 function pnoise(x, y, P) { const xi = Math.floor(x), yi = Math.floor(y), xf = x - xi, yf = y - yi; const u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf); const a = ph(xi, yi, P), b = ph(xi + 1, yi, P), c = ph(xi, yi + 1, P), d = ph(xi + 1, yi + 1, P); return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v; }
@@ -41,7 +41,7 @@ function makeTexture(type) {
     const n1 = pnoise(x / S * 6, y / S * 6, 6) * .65 + pnoise(x / S * 12 + 3, y / S * 12 + 7, 12) * .35;
     const n2 = pnoise(x / S * 24 + 5, y / S * 24 + 1, 24) * .6 + pnoise(x / S * 48, y / S * 48, 48) * .4;
     let t = n1 * .55 + n2 * .45;
-    if (type === G.CRYPT) {
+    if (type === G.CRYPT || type === G.ABBEY) {
       // big worn flagstones with dark seams and grime
       const sx = x / 32, sy = y / 22; const ix = Math.floor(sx + (Math.floor(sy) % 2) * .5), iy = Math.floor(sy); const fx = sx + (Math.floor(sy) % 2) * .5 - ix, fy = sy - iy;
       const edge = Math.min(fx, 1 - fx, fy * 1.4, (1 - fy) * 1.4); t = edge < .05 ? .02 : .25 + ((ix * 5 + iy * 11) % 7) / 18 + n2 * .25 - (n1 > .62 ? .15 : 0);
@@ -84,7 +84,7 @@ function buildChunk(cx, cy) {
   const layer = document.createElement('canvas'); layer.width = c.width; layer.height = c.height; const lg = layer.getContext('2d');
   for (const type of ORDER) {
     let any = false; lg.setTransform(1, 0, 0, 1, 0, 0); lg.clearRect(0, 0, layer.width, layer.height); lg.setTransform(DPR, 0, 0, DPR, -left * DPR, -top * DPR);
-    const hard = type === G.COBBLE || type === G.BRIDGE || type === G.WATER || type === G.CRYPT;
+    const hard = type === G.COBBLE || type === G.BRIDGE || type === G.WATER || type === G.CRYPT || type === G.ABBEY;
     for (let y = y0 - 1; y <= y0 + CH; y++) for (let x = x0 - 1; x <= x0 + CH; x++) {
       if (x < 0 || y < 0 || x >= MAP || y >= MAP) continue; if (W.ground[y * MAP + x] !== type) continue; any = true;
       const m = hard ? MASK_HARD[(x + y) & 1] : MASK_SOFT[(x * 3 + y * 7) & 3]; const [sx, sy] = toS(x + .5, y + .5); lg.drawImage(m, sx - m.width / 2, sy - m.height / 2);
@@ -161,7 +161,9 @@ const inParty = id => !!(party && party.id && party.members.some(mm => mm.id ===
 // tinted variants of the baked adventurer sheets, used for human outlaws (no extra baking needed)
 const VARIANTS = { bandit: ['rogue', 'rgba(150,30,30,.5)'], deserter: ['knight', 'rgba(25,25,45,.55)'], cultist: ['mage', 'rgba(95,20,120,.55)'], brute: ['barbarian', 'rgba(40,80,30,.5)'],
   // catacomb dwellers: tinted skeleton sheets
-  crypt_ghoul: ['skel_minion', 'rgba(70,120,50,.5)'], crypt_guard: ['skel_warrior', 'rgba(60,75,110,.5)'], crypt_priest: ['skel_mage', 'rgba(110,30,140,.5)'], crypt_knight: ['skel_warrior', 'rgba(15,15,30,.62)'], crypt_lord: ['skel_warrior', 'rgba(150,20,20,.5)'] };
+  crypt_ghoul: ['skel_minion', 'rgba(70,120,50,.5)'], crypt_guard: ['skel_warrior', 'rgba(60,75,110,.5)'], crypt_priest: ['skel_mage', 'rgba(110,30,140,.5)'], crypt_knight: ['skel_warrior', 'rgba(15,15,30,.62)'], crypt_lord: ['skel_warrior', 'rgba(150,20,20,.5)'],
+  // 잿빛 수도원: tinted adventurer and skeleton sheets
+  abbey_acolyte: ['mage', 'rgba(90,70,40,.5)'], abbey_brute: ['knight', 'rgba(80,50,30,.5)'], abbey_guard: ['skel_warrior', 'rgba(210,180,90,.45)'], abbey_monk: ['mage', 'rgba(40,20,60,.6)'], abbey_bell: ['barbarian', 'rgba(130,60,20,.5)'], abbey_abbot: ['knight', 'rgba(230,210,150,.45)'] };
 const tinted = new Map();
 function charDef(sprite) { return MF.characters[sprite] || (VARIANTS[sprite] && MF.characters[VARIANTS[sprite][0]]) || null; }
 function sheet(sprite, file) { const v = VARIANTS[sprite]; const base = img(file); if (!v || !base) return base; const key = sprite + ':' + file; let cv = tinted.get(key); if (cv) return cv; cv = document.createElement('canvas'); cv.width = base.naturalWidth; cv.height = base.naturalHeight; const g = cv.getContext('2d'); g.drawImage(base, 0, 0); g.globalCompositeOperation = 'source-atop'; g.fillStyle = v[1]; g.fillRect(0, 0, cv.width, cv.height); tinted.set(key, cv); return cv; }
@@ -208,7 +210,8 @@ function applySettings() { $('minimap').classList.toggle('big', !!SETTINGS.mmBig
 function openSettings() { const w = $('settings'); w.hidden = !w.hidden; if (w.hidden) return; w.innerHTML = `<div class="wh"><span class="wt">설정</span><button class="wx" id="setx">✕</button></div><div class="wb"><label><input type="checkbox" data-s="sound" ${isMuted() ? '' : 'checked'}> 효과음·환경음</label><label><input type="checkbox" data-s="names" ${SETTINGS.names ? 'checked' : ''}> 이름표 표시</label><label><input type="checkbox" data-s="hideOthersNames" ${SETTINGS.hideOthersNames ? 'checked' : ''}> 다른 모험가 이름 숨기기</label><label><input type="checkbox" data-s="rts" ${SETTINGS.rts ? 'checked' : ''}> RTS식 조작 (오른쪽 클릭 이동, A+클릭 공격)</label><label><input type="checkbox" data-s="dmg" ${SETTINGS.dmg ? 'checked' : ''}> 피해 숫자 표시</label><label><input type="checkbox" data-s="mmBig" ${SETTINGS.mmBig ? 'checked' : ''}> 큰 미니맵</label><div class="row"><button class="btn" id="zoomReset">확대 초기화</button><button class="btn" id="setLogout">로그아웃</button></div><p class="ds">단축키: A 공격(RTS식: A+클릭, A 두 번은 가장 가까운 적) ·1~6 직업 기술 · 7·8·9 물약·귀향 · Z 줍기 · I 가방 · E 장비 · C 캐릭터 · T 특성 · Q 의뢰 · L 순위 · M 소리 · O 설정 · R 귓속말 답장 · Esc 멈춤</p></div>`;
   $('setx').onclick = () => { w.hidden = true; }; $('zoomReset').onclick = () => { zoom = defaultZoom(); zoomSet = false; }; $('setLogout').onclick = () => $('logout').click();
   for (const c of w.querySelectorAll('input[data-s]')) c.onchange = () => { if (c.dataset.s === 'sound') { const mu = toggleMute(); $('muteBtn').querySelector('small').textContent = mu ? '음소거' : '소리'; return; } SETTINGS[c.dataset.s] = c.checked; saveSettings(); }; }
-const rainDrops = []; const floats = [], bolts = [], clicks = [], rings = [], tele = [], chainsFx = []; let hurtT = -1e9, hurtAmt = 0, deadAt = 0, entering = false, underAmt = 0, jumped = false; let raidState = null, weather = 0, weatherAmt = 0, hoverId = 0, dayPhase = 0, questMarks = {}, party = null, isAdminUser = false, lastWhisper = null;
+const rainDrops = []; const floats = [], bolts = [], clicks = [], rings = [], tele = [], chainsFx = []; let hurtT = -1e9, hurtAmt = 0, deadAt = 0, entering = false, underAmt = 0, jumped = false, insInfo = 0; const hazardFx = [];
+const portalName = p => p.inst ? `${ABBEY.name} · ${p.inst === 'hard' ? '어려움' : '보통'}` : instanceAt(p.x, p.y) >= 0 ? '수도원 밖으로' : p.x < OVER && p.y < OVER ? '지하 묘지 입구' : '지상으로'; let raidState = null, weather = 0, weatherAmt = 0, hoverId = 0, dayPhase = 0, questMarks = {}, party = null, isAdminUser = false, lastWhisper = null;
 function renderParty() {
   const el = $('party'); if (!party || !party.id) { el.hidden = true; return; } el.hidden = false;
   el.innerHTML = `<div class="ph">파티 <span class="ds">${party.members.length}/5</span> <button class="link" id="pleave">나가기</button></div>` + party.members.map(mm => `<div class="pm${mm.id === myId ? ' me' : ''}${mm.id === party.leader ? ' lead' : ''}"><span class="nm">${mm.id === party.leader ? '★ ' : ''}${esc(mm.name)} <small>Lv${mm.level}</small></span><div class="bar hp"><i style="width:${100 * mm.hp / mm.maxHp}%"></i></div></div>`).join('');
@@ -221,7 +224,7 @@ function showInvite(m) {
   box.appendChild(d); setTimeout(() => d.remove(), m.kind === 'party' ? 60000 : 30000); sfx.quest();
 }
 // one-time tips for newcomers (remembered per browser)
-const TIPS = { move: '마우스: 오른쪽 클릭으로 이동하고, 몬스터를 오른쪽 클릭하면 공격합니다. A를 누른 뒤 클릭하면 그 대상을 공격하고, 땅을 클릭하면 가는 길의 몬스터와 싸우며 이동합니다. 왼쪽 클릭은 선택. (설정에서 예전 방식으로 바꿀 수 있습니다) 터치: 누르면 이동·공격·대화.', outside: '성 밖입니다. 6레벨부터는 다른 모험가가 공격해 올 수 있습니다. 귀향 두루마리(9)로 언제든 마을로 돌아갑니다.', lowhp: '체력이 낮습니다! 7번 키로 물약을 마시거나 응급 치료(기술 칸)를 쓰세요. 싸움을 멈추면 서서히 회복되고, 마을 안에서는 두 배로 빠릅니다.', drop: '바닥의 전리품은 클릭하거나 Z 키로 줍습니다. 10초 동안은 처치한 사람에게 우선권이 있습니다.', bag: '가방(I)에서 물건을 두 번 누르면 사용하거나 장착합니다. 장비(E)와 캐릭터(C) 창도 확인해 보세요.', party: '다른 모험가를 우클릭하면 파티 초대·거래·귓속말을 할 수 있습니다. 파티는 경험치를 나누고 서로 공격할 수 없습니다.', crypt: '지하 묘지입니다. 남쪽(안쪽)으로 갈수록 망자들이 강해지고, 가장 깊은 방에는 묘지기 모르바스가 있습니다. 입구 옆 보라색 계단으로 언제든 지상에 올라갈 수 있습니다.', boss: '보스는 혼자서는 버겁습니다. 바닥에 붉은 원이 보이면 범위 공격 예고이니 피하세요. 파티를 모아 도전하세요.' };
+const TIPS = { move: '마우스: 오른쪽 클릭으로 이동하고, 몬스터를 오른쪽 클릭하면 공격합니다. A를 누른 뒤 클릭하면 그 대상을 공격하고, 땅을 클릭하면 가는 길의 몬스터와 싸우며 이동합니다. 왼쪽 클릭은 선택. (설정에서 예전 방식으로 바꿀 수 있습니다) 터치: 누르면 이동·공격·대화.', outside: '성 밖입니다. 6레벨부터는 다른 모험가가 공격해 올 수 있습니다. 귀향 두루마리(9)로 언제든 마을로 돌아갑니다.', lowhp: '체력이 낮습니다! 7번 키로 물약을 마시거나 응급 치료(기술 칸)를 쓰세요. 싸움을 멈추면 서서히 회복되고, 마을 안에서는 두 배로 빠릅니다.', drop: '바닥의 전리품은 클릭하거나 Z 키로 줍습니다. 10초 동안은 처치한 사람에게 우선권이 있습니다.', bag: '가방(I)에서 물건을 두 번 누르면 사용하거나 장착합니다. 장비(E)와 캐릭터(C) 창도 확인해 보세요.', party: '다른 모험가를 우클릭하면 파티 초대·거래·귓속말을 할 수 있습니다. 파티는 경험치를 나누고 서로 공격할 수 없습니다.', abbey: '잿빛 수도원입니다. 일행만의 수도원이라 다른 모험가와 마주치지 않습니다. 보스 셋은 각자 기믹이 있습니다 — 엘로드의 어둠의 기도는 끊고, 고르막의 불타는 종유는 피해서 흩어지고, 바르테스가 결계를 치면 수호자부터 쓰러뜨리세요. 보상은 보스마다 각자 가방으로 (주 1회).', crypt: '지하 묘지입니다. 남쪽(안쪽)으로 갈수록 망자들이 강해지고, 가장 깊은 방에는 묘지기 모르바스가 있습니다. 입구 옆 보라색 계단으로 언제든 지상에 올라갈 수 있습니다.', boss: '보스는 혼자서는 버겁습니다. 바닥에 붉은 원이 보이면 범위 공격 예고이니 피하세요. 파티를 모아 도전하세요.' };
 let tipsSeen = {}; try { tipsSeen = JSON.parse(localStorage.getItem('rm-tips') || '{}'); } catch {}
 function tip(key) { if (tipsSeen[key] || !TIPS[key]) return; tipsSeen[key] = 1; try { localStorage.setItem('rm-tips', JSON.stringify(tipsSeen)); } catch {} const n = $('tip'); n.innerHTML = `<b>도움말</b> ${esc(TIPS[key])}`; n.hidden = false; clearTimeout(tip.t); tip.t = setTimeout(() => n.hidden = true, 12000); addLog('💡 ' + TIPS[key], 'sys'); }
 function showNotice(text, ms = 8000) { const n = $('notice'); n.textContent = text; n.hidden = false; clearTimeout(showNotice.t); showNotice.t = setTimeout(() => n.hidden = true, ms); }
@@ -267,7 +270,7 @@ function onMsg(m) {
   if (m.t === 'welcome') { reconnect.tries = 0; $('reconn').hidden = true; if (myId) { addLog('다시 연결되었습니다.', 'sys'); } myId = m.id; isAdminUser = !!m.admin; if (isAdminUser) $('adminLink').hidden = false; if (!$('join').hidden) { entering = true; $('jerr').textContent = '세계를 불러오는 중…'; } $('pname').textContent = m.name; setTimeout(() => tip('move'), 1500); setTimeout(() => tip('bag'), 40000); addLog(`${m.name}님, 레이븐무어에 오신 것을 환영합니다. 성문은 동서남북 네 곳에 있습니다. 상인·스승·마을 사람은 이름을 눌러 말을 걸 수 있습니다.`, 'sys'); return; }
   if (m.t === 'snap') {
     for (const [id, kind, name, sprite, level, flag, maxHp, extra, scale, boss, guild, title] of m.m) { if (kind === 3) tip('drop'); const e = ents.get(id) || { id, atkT: -1e9, hitT: -1e9, deadT: 0, rx: null }; Object.assign(e, { kind, name, sprite, level, flag, maxHp, extra, scale: scale || 1, boss: boss === 1, elite: boss === 2, guild: guild || '', title: title || '' }); ents.set(id, e); }
-    dayPhase = m.day || 0; weather = m.w || 0; questMarks = m.qm || {}; raidState = m.raid || null;
+    dayPhase = m.day || 0; weather = m.w || 0; insInfo = m.ins || 0; questMarks = m.qm || {}; raidState = m.raid || null;
     for (const [id, x, y, dir, st, hp, sf] of m.e) { const e = ents.get(id); if (!e) continue; if (e.rx === null || Math.hypot(e.rx - x, e.ry - y) > 4) { e.rx = x; e.ry = y; } if (st === 4 && e.st !== 4) e.deadT = t; Object.assign(e, { x, y, dir, st, hp, sf }); }
     for (const id of m.g) ents.delete(id);
     me = ents.get(myId); meStats = m.me; ui.setMe(m.me); online = m.e.filter(e => ents.get(e[0])?.kind === 1).length; return;
@@ -280,6 +283,7 @@ function onMsg(m) {
         // show who is hitting us when we have no target yet (monsters and PKers that strike first)
         const a = ents.get(m.a); if (a && !targetId && a.kind !== 4 && a.st !== 4) targetId = a.id; }
       else sfxAt(m.c ? 'crit' : 'hit', dist(b));
+      if ((m.imm || m.miss) && (SETTINGS.dmg || mine || byMe)) { floats.push({ x: b.rx, y: b.ry, h: headY(b), dx: (Math.random() - .5) * 20, txt: m.imm ? '면역' : '회피', col: '#c8c2b4', t0: t }); return; }
       if (m.ab && (SETTINGS.dmg || mine)) floats.push({ x: b.rx, y: b.ry, h: headY(b) + 14, dx: (Math.random() - .5) * 20, txt: `흡수 ${m.ab}`, col: '#9fd0ff', t0: t });
       if ((SETTINGS.dmg || mine) && (m.v || !m.ab)) floats.push({ x: b.rx, y: b.ry, h: headY(b), dx: (Math.random() - .5) * 26, txt: m.c ? m.v + '!' : String(m.v), col: mine ? '#ff7b6b' : m.c ? '#ffd86b' : byMe ? '#ffffff' : '#c8c2b4', big: !!m.c, pop: !!m.c, t0: t }); } }
     else if (m.k === 'cast') { const e = ents.get(m.id); if (e) e.castInfo = { name: m.n || (SKILLS[m.s] ? SKILLS[m.s].name : ''), t0: t, ms: m.ms, intr: m.s ? true : !!m.intr }; }
@@ -290,6 +294,10 @@ function onMsg(m) {
     else if (m.k === 'fx') {
       const e = ents.get(m.id);
       if (m.fx === 'heal' || m.fx === 'mana') { if (e) { if (m.id === myId) sfx.heal(); floats.push({ x: e.rx, y: e.ry, h: headY(e), txt: '+' + m.v, col: m.fx === 'heal' ? '#8fd79a' : '#7fb4ff', t0: t }); rings.push({ x: e.rx, y: e.ry, col: m.fx === 'heal' ? '143,215,154' : '127,180,255', t0: t, life: 600, r: 22 }); } }
+      else if (m.fx === 'hazard') { hazardFx.push({ x: m.x, y: m.y, r: m.r, t0: t, warn: m.warn, life: m.life }); sfx.fire(); }
+      else if (m.fx === 'ward' && e) { sfx.roar(); rings.push({ x: e.rx, y: e.ry, col: '240,210,120', t0: t, life: 1200, r: 60, fill: true }); floats.push({ x: e.rx, y: e.ry, h: headY(e) + 10, txt: '결계!', col: '#f0d27a', big: true, pop: true, t0: t, life: 1500 }); }
+      else if (m.fx === 'unward' && e) { sfx.quest(); rings.push({ x: e.rx, y: e.ry, col: '255,255,255', t0: t, life: 700, r: 50 }); floats.push({ x: e.rx, y: e.ry, h: headY(e) + 10, txt: '결계 붕괴', col: '#ffffff', big: true, t0: t }); }
+      else if (m.fx === 'clear' && e) floats.push({ x: e.rx, y: e.ry, h: headY(e) + 12, txt: '무료 시전!', col: '#9fd0ff', t0: t });
       else if (m.fx === 'frost') { sfx.chain(); rings.push({ x: m.x, y: m.y, col: '150,210,255', t0: t, life: 700, r: 80, fill: true }); }
       else if (m.fx === 'taunt') { sfx.roar(); rings.push({ x: m.x, y: m.y, col: '255,110,80', t0: t, life: 700, r: 105 }); if (e) floats.push({ x: e.rx, y: e.ry, h: headY(e) + 8, txt: '도전!', col: '#ff9a6a', big: true, t0: t }); }
       else if (m.fx === 'shield' && e) { sfxAt('heal', dist(e)); rings.push({ x: e.rx, y: e.ry, col: '150,200,255', t0: t, life: 800, r: 30 }); }
@@ -432,10 +440,11 @@ const ui = createUI({ MF, send: o => send(o), log: addLog });
 
 // ───────────────────────── minimap
 const mmBase = document.createElement('canvas'); mmBase.width = MAP; mmBase.height = MAP;
-{ const g = mmBase.getContext('2d'); for (let y = 0; y < MAP; y++) for (let x = 0; x < MAP; x++) { const gr = W.ground[y * MAP + x]; const c = GCOL[gr][0]; g.fillStyle = `rgb(${c})`; if (W.block[y * MAP + x] && gr !== G.WATER) g.fillStyle = gr === G.COBBLE ? '#d8d0c0' : gr === G.VOID ? '#0c0b0a' : gr === G.CRYPT ? '#24222a' : '#3a4a2a'; if (gr === G.CRYPT && !W.block[y * MAP + x]) g.fillStyle = '#6a6672'; g.fillRect(x, y, 1, 1); } }
+{ const g = mmBase.getContext('2d'); for (let y = 0; y < MAP; y++) for (let x = 0; x < MAP; x++) { const gr = W.ground[y * MAP + x]; const c = GCOL[gr][0]; g.fillStyle = `rgb(${c})`; if (W.block[y * MAP + x] && gr !== G.WATER) g.fillStyle = gr === G.COBBLE ? '#d8d0c0' : gr === G.VOID ? '#0c0b0a' : gr === G.CRYPT || gr === G.ABBEY ? '#24222a' : '#3a4a2a'; if (gr === G.CRYPT && !W.block[y * MAP + x]) g.fillStyle = '#6a6672'; if (gr === G.ABBEY && !W.block[y * MAP + x]) g.fillStyle = '#8a7a68'; g.fillRect(x, y, 1, 1); } }
 const mm = $('minimap').getContext('2d'); let dest = null;
 // the part of the world the minimap shows: the whole overworld, or a 60-tile window of the crypt strip that follows you
 function mmRegion() {
+  const sl = me && me.rx !== null ? instanceAt(me.x, me.y) : -1; if (sl >= 0) { const s = ABBEY_SLOTS[sl]; return { x0: s.x0 - 4, y0: s.y0 - 4, w: 52 }; }
   if (me && me.rx !== null && inDungeon(me.x, me.y)) { const w = 60; return { x0: DUNGEON.x0 - 4, y0: clamp(Math.round(me.ry) - w / 2, 0, MAP - w), w }; }
   return { x0: 0, y0: 0, w: OVER };
 }
@@ -461,8 +470,8 @@ let lastZone = '';
 const nightLabel = p => { const n = Math.sin((p - .25) * Math.PI * 2); return n < .2 ? '낮' : n < .6 ? (p < .5 ? '황혼' : '새벽') : '밤'; };
 // ── skill bar (keys 1..6), rebuilt whenever your class changes; clicking a button casts on your current target
 let barCls = null, myCast = null, talKey = '', curTm = talentMods({});
-const BUFF_NAME = { bless: '축복', bulwark: '철벽', shield: '보호막', bleed: '출혈', slow: '둔화', stun: '기절', taunt: '도발됨' };
-const STATUS_BITS = [[1, 'stun'], [2, 'bleed'], [4, 'slow'], [8, 'shield'], [16, 'bulwark'], [32, 'bless'], [64, 'taunt']];
+const BUFF_NAME = { bless: '축복', bulwark: '철벽', shield: '보호막', bleed: '출혈', slow: '둔화', stun: '기절', taunt: '도발됨', ward: '결계(면역)', shroud: '그림자 망토', clear: '다음 기술 무료' };
+const STATUS_BITS = [[1, 'stun'], [2, 'bleed'], [4, 'slow'], [8, 'shield'], [16, 'bulwark'], [32, 'bless'], [64, 'taunt'], [128, 'ward']];
 function castSlot(i) { if (!meStats) return; const id = skillsFor(meStats[11])[i]; if (id) send({ t: 'cast', id, tid: targetId || 0 }); }
 function buildSkillbar(cls) {
   barCls = cls; const box = $('skillbar'); box.innerHTML = '';
@@ -485,8 +494,9 @@ function hud() {
   $('pcls').classList.toggle('bless', !!meStats[20]);
   $('xpb').style.width = (100 * xp / need) + '%'; $('xpt').textContent = `${(100 * xp / need).toFixed(1)}%`; $('plv').textContent = lv; $('gold').textContent = gold;
   $('align').textContent = align < 0 ? `무법자 ${align}` : `명예 ${align}`; $('align').style.color = align < 0 ? '#ff6a5a' : '';
-  if (me) { const safe = isSafe(me.x, me.y), under = inDungeon(me.x, me.y); const z = under ? `지하 묘지 · ${CRYPT_FLOOR_NAME[cryptFloor(me.y)]}` : safe ? '성내 · 안전 지대' : '성 밖 · PK 허용';
-    if (z !== lastZone) { lastZone = z; $('zonet').textContent = z; $('zone').classList.toggle('danger', !safe); $('zone').classList.toggle('crypt', under); if (under) { tip('crypt'); showNotice(z, 3000); } else if (!safe) tip('outside'); } }
+  if (me) { const safe = isSafe(me.x, me.y), inst = instanceAt(me.x, me.y) >= 0, under = inDungeon(me.x, me.y) || inst;
+    const z = inst ? `${ABBEY.name} · ${insInfo ? insInfo[0] : ''} · 보스 ${insInfo ? insInfo[1] : 0}/3` : under ? `지하 묘지 · ${CRYPT_FLOOR_NAME[cryptFloor(me.y)]}` : safe ? '성내 · 안전 지대' : '성 밖 · PK 허용';
+    if (z !== lastZone) { lastZone = z; $('zonet').textContent = z; $('zone').classList.toggle('danger', !safe); $('zone').classList.toggle('crypt', under); if (inst && !lastZone.startsWith(ABBEY.name)) { tip('abbey'); showNotice(z, 3000); } else if (under && !inst) { tip('crypt'); showNotice(z, 3000); } else if (!safe) tip('outside'); } }
   if (hp < mhp * .4 && hp > 0) tip('lowhp'); if (meStats[21]) tip('party');
   $('online').textContent = `주변 ${online}명 · ${latency}ms`; $('pcls').textContent = classInfo(meStats[11]).name;
   // skills: cooldown sweep per button (its own cooldown or the global one, whichever is longer), dimmed when you lack the resource
@@ -505,7 +515,7 @@ function hud() {
   const cst = meStats[26]; if (cst) { const end = performance.now() + cst[1]; if (!myCast || myCast.id !== cst[0] || Math.abs(myCast.end - end) > 150) myCast = { id: cst[0], end, total: cst[2] }; } else myCast = null;
   const bb = $('bossbar'); const tgb = ents.get(targetId); if (tgb && tgb.boss && tgb.st !== 4) { bb.hidden = false; tip('boss'); $('bossname').textContent = `${tgb.name} · Lv ${tgb.level}`; $('bosshp').style.width = (100 * tgb.hp / tgb.maxHp) + '%'; $('bosshpt').textContent = `${tgb.hp} / ${tgb.maxHp}`; } else bb.hidden = true;
   // darkness peaks at phase .5 and is lightest at 0, so phase 0 is noon and .5 is midnight
-  const hr = Math.floor((dayPhase * 24 + 12) % 24); const ug = !!(me && inDungeon(me.x, me.y));
+  const hr = Math.floor((dayPhase * 24 + 12) % 24); const ug = !!(me && (inDungeon(me.x, me.y) || instanceAt(me.x, me.y) >= 0));
   if (me) setAmbience({ rain: weather === 1 && !ug ? 1 : 0, fountain: ug ? 0 : Math.max(0, 1 - Math.hypot(me.x - CX, me.y - CY - .5) / 10), night: ug ? 0 : Math.max(0, Math.sin((dayPhase - .25) * Math.PI * 2)), hour: hr, inTown: isSafe(me.x, me.y) }); $('clock').textContent = ug ? '' : `${String(hr).padStart(2, '0')}시 ${nightLabel(dayPhase)}`;
   const cnt = id => ui.state.inv.filter(x => x.id === id).reduce((a, x) => a + x.n, 0); $('n1').textContent = cnt('hpPotion'); $('n2').textContent = cnt('mpPotion'); $('n3').textContent = cnt('scroll');
   const tg = ents.get(targetId); if (tg && tg.st !== 4) { $('target').hidden = false; $('tname').textContent = tg.name; $('tlv').textContent = `Lv ${tg.level}`; $('thpb').style.width = (100 * tg.hp / tg.maxHp) + '%'; $('thpt').textContent = `${tg.hp} / ${tg.maxHp}`;
@@ -542,6 +552,10 @@ function frame(t) {
       ctx.fillStyle = '#060508'; ctx.beginPath(); ctx.ellipse(sx, sy, 26, 13, 0, 0, 7); ctx.fill();
       for (let k = 0; k < 4; k++) { ctx.fillStyle = `rgba(120,110,130,${.5 - k * .1})`; ctx.fillRect(sx - 14 + k * 3, sy - 6 + k * 3.5, 28 - k * 6, 2.5); }
       ctx.lineWidth = 2; for (let k = 0; k < 8; k++) { const a = t / 1400 + k * Math.PI / 4; ctx.strokeStyle = `rgba(170,130,255,${.45 + .3 * Math.sin(t / 300 + k)})`; ctx.beginPath(); ctx.ellipse(sx, sy, 30, 15, 0, a, a + .45); ctx.stroke(); } }
+    // burning puddles: a dashed warning ring that fills in, then a pulsing fire pool until it burns out
+    for (let i = hazardFx.length - 1; i >= 0; i--) { const h = hazardFx[i], age = t - h.t0; if (age > h.warn + h.life) { hazardFx.splice(i, 1); continue; } const [sx, sy] = toS(h.x, h.y), rx = h.r * TW / 2, ry = h.r * TH / 2;
+      if (age < h.warn) { const p = age / h.warn; ctx.setLineDash([6, 5]); ctx.strokeStyle = 'rgba(255,80,40,.9)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.ellipse(sx, sy, rx, ry, 0, 0, 7); ctx.stroke(); ctx.setLineDash([]); ctx.fillStyle = `rgba(255,80,40,${.12 + p * .2})`; ctx.beginPath(); ctx.ellipse(sx, sy, rx * p, ry * p, 0, 0, 7); ctx.fill(); }
+      else { const fade = Math.min(1, (h.warn + h.life - age) / 600), pu = .5 + .15 * Math.sin(t / 120); const gr = ctx.createRadialGradient(sx, sy, 0, sx, sy, rx); gr.addColorStop(0, `rgba(255,190,80,${pu * fade})`); gr.addColorStop(1, `rgba(220,60,20,${.35 * fade})`); ctx.fillStyle = gr; ctx.beginPath(); ctx.ellipse(sx, sy, rx, ry, 0, 0, 7); ctx.fill(); ctx.strokeStyle = `rgba(255,120,40,${.8 * fade})`; ctx.lineWidth = 1.5; ctx.stroke(); } }
     // click markers
     for (let i = clicks.length - 1; i >= 0; i--) { const c = clicks[i]; const a = 1 - (t - c.t0) / 600; if (a <= 0) { clicks.splice(i, 1); continue; } const [sx, sy] = toS(c.x, c.y); ctx.strokeStyle = `rgba(${c.col || '255,225,150'},${a})`; ctx.lineWidth = 2; ctx.beginPath(); ctx.ellipse(sx, sy, 10 + (1 - a) * 14, 5 + (1 - a) * 7, 0, 0, 7); ctx.stroke(); }
     for (let i = tele.length - 1; i >= 0; i--) { const q = tele[i]; const p = (t - q.t0) / q.life; if (p >= 1) { tele.splice(i, 1); continue; }
@@ -559,7 +573,7 @@ function frame(t) {
     for (let i = rings.length - 1; i >= 0; i--) { const r = rings[i]; const p = (t - r.t0) / r.life; if (p >= 1) { rings.splice(i, 1); continue; } const [sx, sy] = toS(r.x, r.y); const rr = r.r * (.3 + p * .7); if (r.fill) { const gr = ctx.createRadialGradient(sx, sy, 0, sx, sy, rr); gr.addColorStop(0, `rgba(${r.col},${.55 * (1 - p)})`); gr.addColorStop(1, `rgba(${r.col},0)`); ctx.fillStyle = gr; ctx.beginPath(); ctx.ellipse(sx, sy, rr, rr * .5, 0, 0, 7); ctx.fill(); } ctx.strokeStyle = `rgba(${r.col},${1 - p})`; ctx.lineWidth = 2; ctx.beginPath(); ctx.ellipse(sx, sy - 2, rr, rr * .5, 0, 0, 7); ctx.stroke(); }
     // labels, hp bars, chat bubbles, floating numbers (screen-aligned)
     ctx.textAlign = 'center';
-    for (const p of PORTALS) { const [sx, sy] = toS(p.x + .5, p.y + .5); if (Math.abs(sx - cam.x) > hw || Math.abs(sy - cam.y) > hh) continue; const nm = p.x < OVER ? '지하 묘지 입구' : '지상으로';
+    for (const p of PORTALS) { const [sx, sy] = toS(p.x + .5, p.y + .5); if (Math.abs(sx - cam.x) > hw || Math.abs(sy - cam.y) > hh) continue; const nm = portalName(p);
       ctx.font = "500 11px 'Noto Sans KR'"; const tw = ctx.measureText(nm).width + 14; ctx.fillStyle = 'rgba(16,12,22,.82)'; ctx.fillRect(sx - tw / 2, sy + 14, tw, 18); ctx.fillStyle = '#c9b0ff'; ctx.fillText(nm, sx, sy + 27); }
     for (const o of statics) if (o.name && o.building !== 'well' && !o.building.startsWith('home')) { const [sx, sy] = toS(o.x, o.y); if (Math.abs(sx - cam.x) > hw || Math.abs(sy - cam.y) > hh) continue; ctx.font = "500 11px 'Noto Sans KR'"; const tw = ctx.measureText(o.name).width + 14; ctx.fillStyle = 'rgba(16,14,12,.78)'; ctx.fillRect(sx - tw / 2, sy + 8, tw, 18); ctx.fillStyle = '#e8d3a4'; ctx.fillText(o.name, sx, sy + 21); }
     // loot labels: nudge upward past labels already placed so a pile of drops stays readable
@@ -588,7 +602,7 @@ function frame(t) {
       // crits pop in large then settle
       const size = (f.big ? 17 : 14) * (f.pop ? 1 + Math.max(0, .6 - p * 3) : 1); ctx.font = `700 ${size.toFixed(1)}px 'Noto Sans KR'`; ctx.globalAlpha = 1 - p * p; ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,.85)'; const y = sy - f.h - 12 - p * 34; ctx.strokeText(f.txt, sx, y); ctx.fillStyle = f.col; ctx.fillText(f.txt, sx, y); ctx.globalAlpha = 1; }
     // weather (server-synchronised): rain streaks + cool tint, or fog with a clear circle around the player
-    const under = !!(me && inDungeon(me.x, me.y)); underAmt += ((under ? 1 : 0) - underAmt) * Math.min(1, dt * 3);
+    const under = !!(me && (inDungeon(me.x, me.y) || instanceAt(me.x, me.y) >= 0)); underAmt += ((under ? 1 : 0) - underAmt) * Math.min(1, dt * 3);
     weatherAmt += ((weather && !under ? 1 : 0) - weatherAmt) * Math.min(1, dt * (under ? 4 : .5));
     if (weatherAmt > .02) { ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
       if ((weather === 1 && !under) || ((weather === 0 || under) && rainDrops.length)) { ctx.fillStyle = `rgba(40,50,70,${.22 * weatherAmt})`; ctx.globalCompositeOperation = 'multiply'; ctx.fillRect(0, 0, VW, VH); ctx.globalCompositeOperation = 'source-over';
@@ -604,7 +618,7 @@ function frame(t) {
       if (under) {
         if (me && me.rx !== null) glow(me.rx, me.ry, 200, .5);
         for (const o of torches) { const fl = .8 + .2 * Math.sin(t / 90 + o.x * 3) * Math.sin(t / 53 + o.y); glow(o.x, o.y, 150 * fl, .55 * fl, '255,170,80', 36); }
-        for (const p of PORTALS) if (p.x >= OVER) glow(p.x + .5, p.y + .5, 120, .5, '160,110,255', 4);
+        for (const p of PORTALS) if (!(p.x < OVER && p.y < OVER)) glow(p.x + .5, p.y + .5, 120, .5, '160,110,255', 4);
       } else { if (me && me.rx !== null) glow(me.rx, me.ry, 170, .55); for (const e of ents.values()) if (e.kind === 4 && e.rx !== null) glow(e.rx, e.ry, 110, .4); for (const g of GATES) glow(g.x + .5, g.y + .5, 140, .5); glow(CX, CY + .5, 120, .35); }
       ctx.globalCompositeOperation = 'source-over'; }
     // torch flames sit above the darkness so they read as light sources

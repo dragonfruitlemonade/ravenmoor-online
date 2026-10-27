@@ -22,6 +22,14 @@ export const ITEMS = {
   wardenPlate: { name: '묘지기의 판금',   type: 'armor',  def: 22, price: 6400, icon: 'armor' },
   wardenSeal:  { name: '묘지기의 인장',     type: 'ring',   atk: 5, def: 3, price: 4200, icon: 'ring' },
   abyssHelm:   { name: '심연의 투구',     type: 'helmet', def: 6, price: 2200, icon: 'helmet' },
+  // 잿빛 수도원 boss rewards (personal loot, see ABBEY_LOOT)
+  monkHood:    { name: '수도사의 두건',   type: 'helmet', def: 8, atk: 2, price: 2600, icon: 'helmet' },
+  fallenPrayer:{ name: '타락한 기도서',   type: 'ring',   atk: 4, def: 2, price: 2400, icon: 'ring' },
+  bellHammer:  { name: '종지기의 망치',   type: 'weapon', atk: 46, spd: .9, price: 5200, icon: 'axe1' },
+  ashBoots:    { name: '잿빛 장화',       type: 'boots',  def: 5, price: 2200, icon: 'boots' },
+  abbotStaff:  { name: '수도원장의 지팡이', type: 'weapon', atk: 52, spd: 1.0, price: 7000, icon: 'staff' },
+  ashPlate:    { name: '잿빛 판금',       type: 'armor',  def: 25, price: 7200, icon: 'armor' },
+  barthesSeal: { name: '바르테스의 인장', type: 'ring',   atk: 6, def: 4, price: 5600, icon: 'ring' },
   // armour
   leatherArmor:{ name: '가죽 갑옷',    type: 'armor',  def: 4,  price: 150,  icon: 'armor' },
   chainMail:   { name: '사슬 갑옷',    type: 'armor',  def: 9,  price: 480,  icon: 'armor' },
@@ -65,7 +73,14 @@ export const DROPS = {
   crypt_priest: [['soulGem', .22], ['mpPotion', .4], ['cursedCloth', .4]],
   crypt_knight: [['soulGem', .2], ['rustyIron', .5], ['hpPotion', .4], ['abyssHelm', .04], ['battleAxe', .03]],
   boss_crypt:   [['soulGem', 1], ['soulGem', 1], ['soulGem', .5], ['wardenBlade', .45], ['wardenPlate', .4], ['wardenSeal', .3], ['hpPotion', 1]],
+  abbey_acolyte: [['soulGem', .15], ['mpPotion', .3], ['cursedCloth', .4]],
+  abbey_brute:   [['rustyIron', .5], ['hpPotion', .3]],
 };
+// instance bosses don't drop on the floor: every party member gets one item from the boss's table (once per boss, difficulty and week)
+export const ABBEY_LOOT = { boss_monk: ['monkHood', 'fallenPrayer'], boss_bell: ['bellHammer', 'ashBoots'], boss_abbot: ['abbotStaff', 'ashPlate', 'barthesSeal'] };
+export const DIFFICULTY = { normal: { name: '보통', hp: 1, atk: 1, lv: 0, enh: 0, gold: 1 }, hard: { name: '어려움', hp: 1.6, atk: 1.3, lv: 2, enh: 2, gold: 1.8 } };
+// weekly lockouts reset every Monday 00:00 KST (1970-01-05 was a Monday)
+export const weekKey = (t = Date.now()) => Math.floor((t + 9 * 3600000 - 4 * 86400000) / (7 * 86400000));
 
 // NPCs: where they stand, what they offer. Positions are tiles in front of their building doors.
 export const NPCS = [
@@ -319,6 +334,7 @@ export const TITLES = [
   { id: 'kingh',    name: '왕을 벤',        desc: '보스 처치 10회', req: (p, s) => (s.bossKills || 0) >= 10 },
   { id: 'outlaw',   name: '무법자',         desc: '모험가 10명 처치 (PK)', req: (p, s) => (s.pks || 0) >= 10 },
   { id: 'guardian', name: '성벽의 수호자',  desc: '성문 습격 격퇴 3회', req: (p, s) => (s.raids || 0) >= 3 },
+  { id: 'abbey',    name: '수도원 정복자',  desc: '잿빛 수도원의 보스 셋을 모두 쓰러뜨림', req: (p, s) => (s.abbeyClears || 0) >= 1 },
   { id: 'hero',     name: '레이븐무어의 영웅', desc: '모든 본편 의뢰 완료', req: (p, s) => QUESTS.filter(q => !q.daily).every(q => p.quests && p.quests[q.id] && p.quests[q.id].st === 'done') },
   { id: 'rich',     name: '부유한',         desc: '금화 50,000 보유 (창고 포함)', req: (p) => (p.gold + (p.bankGold || 0)) >= 50000 },
 ];
