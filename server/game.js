@@ -613,7 +613,7 @@ function instanceBoss(b) {
 }
 export const instanceCount = () => instances.size;
 // admin tools act on your selected monster, else the nearest boss (or monster) within 12 tiles
-function adminTarget(p) { if (p.target && isMonster(p.target) && !p.target.dead && ents.get(p.target.id) === p.target) return p.target;
+function adminTarget(p) { if (p.target && isMonster(p.target) && !p.target.dead && ents.get(p.target.id) === p.target && dist(p, p.target) <= 12) return p.target;
   const ms = near(p.x, p.y, 12, e => isMonster(e) && !e.dead).sort((a, b) => (b.boss - a.boss) || dist(p, a) - dist(p, b)); return ms[0] || null; }
 let lastSnap = 0, lastSave = 0, lastInst = 0;
 setInterval(() => { for (const c of [...clients]) { if (!c.player && now() - c.lastMsg > 20000) { c.sock.close(); continue; } if (now() - c.sock.lastPong > 45000 && now() - c.lastMsg > 45000) { c.sock.close(); continue; } c.sock.ping(); } }, 15000).unref();

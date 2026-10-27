@@ -483,7 +483,7 @@ function buildSkillbar(cls) {
 // cast bars: yours above the hotbar, everyone else's over their head and in the target frame
 function drawCastBars(t) {
   const cb = $('castbar'); if (myCast && myCast.end > t) { const p = 1 - (myCast.end - t) / myCast.total; cb.hidden = false; cb.querySelector('i').style.width = (100 * clamp(p, 0, 1)) + '%'; cb.querySelector('span').textContent = `${SKILLS[myCast.id].name} ${((myCast.end - t) / 1000).toFixed(1)}`; } else cb.hidden = true;
-  const tg = ents.get(targetId), tc = $('tcast'); const ci = tg && tg.castInfo; if (ci && t < ci.t0 + ci.ms) { tc.hidden = false; tc.classList.toggle('intr', ci.intr); tc.querySelector('i').style.width = (100 * (t - ci.t0) / ci.ms) + '%'; tc.querySelector('span').textContent = ci.name + (ci.intr ? ' · 끊을 수 있음' : ''); } else tc.hidden = true;
+  const tg = ents.get(targetId), tc = $('tcast'); const ci = tg && tg.castInfo; if (ci && t < ci.t0 + ci.ms) { tc.hidden = false; tc.classList.toggle('intr', !!ci.intr); tc.querySelector('i').style.width = (100 * (t - ci.t0) / ci.ms) + '%'; tc.querySelector('span').textContent = ci.name + (ci.intr ? ' · 끊을 수 있음' : ''); } else tc.hidden = true;
 }
 let camOff = 0; const bottomEl = document.querySelector('#hud .bottom');
 function hud() {
@@ -505,7 +505,7 @@ function hud() {
   const cds = meStats[25] || {}, gcd = meStats[24] || 0;
   for (const b of $('skillbar').children) { const id = b.dataset.skill, s = effSkill(id, curTm); const own = cds[id] || 0, g = s.offGcd ? 0 : gcd; const left = Math.max(own, g), tot = own >= g ? s.cd : GCD;
     b.querySelector('.cd').style.height = (left ? 100 * Math.min(1, left / tot) : 0) + '%'; b.querySelector('.cdt').textContent = own > 1500 ? Math.ceil(own / 1000) : '';
-    b.classList.toggle('nores', mp < s.cost || (s.finisher && !meStats[23])); }
+    b.classList.toggle('nores', !!(mp < s.cost || (s.finisher && !meStats[23]))) /* a real boolean: an undefined force would flip the class on every update */; }
   // unspent talent points: a gold count on the T button
   const tal = (ui.state.talents && ui.state.talents.talents) || {}; const tleft = treesFor(cls).length ? talentPoints(lv) - spentTotal(tal) : 0;
   $('talPts').textContent = tleft > 0 ? tleft : ''; $('talBtn').classList.toggle('glow', tleft > 0);

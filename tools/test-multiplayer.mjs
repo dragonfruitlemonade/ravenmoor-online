@@ -52,7 +52,7 @@ A.send({ t: 'buy', npc: 'smith', item: 'longSword' }); await sleep(250); check(A
 
 // safe zone and PK
 A.send({ t: 'attack', id: B.id }); await sleep(300); check(A.said('마을 안에서는'), 'attacking inside town is refused');
-A.send({ t: 'move', x: 88.5, y: 118.5 }); B.send({ t: 'move', x: 89.5, y: 118.5 }); for (let i = 0; i < 24 && !(A.pos() && A.pos()[1] > 114 && B.pos() && B.pos()[1] > 114); i++) await sleep(500);   // ~34 tiles: about 8 s
+A.send({ t: 'move', x: 88.5, y: 118.5 }); B.send({ t: 'move', x: 89.5, y: 118.5 }); for (let i = 0; i < 26 && !(A.pos() && A.pos()[1] > 118 && B.pos() && B.pos()[1] > 118); i++) await sleep(500);   // ~34 tiles: about 8 s; wait until both have arrived (a walking B can't be caught at equal speed)
 const pa = A.pos(); check(pa && pa[1] > 114, `walked out through the south gate (y=${pa && pa[1]})`);
 A.send({ t: 'attack', id: B.id }); await sleep(300); check(A.said('미만의 모험가'), 'newcomers below level 6 are protected from PK');
 A.send({ t: 'chat', msg: '/레벨 6' }); await sleep(600); A.send({ t: 'chat', msg: '/레벨 6 도적베스' }); await sleep(600);
@@ -276,7 +276,7 @@ A.send({ t: 'chat', msg: '/습격' }); await sleep(600); check(A.said('이미 �
   await say(A, '/레벨 40'); await say(A, `/텔레포트 ${E.x + .5} ${E.y + 3.5}`); await say(A, '/소환 도적베스'); await sleep(300);
   B.send({ t: 'move', x: E.x + 1.5, y: E.y + .5 }); await sleep(2000);
   check(B.said('레벨 26부터') && slotOf(B) < 0, 'a low-level player is turned away at the 어려움 stairs');
-  await say(A, '/레벨 30 도적베스'); B.send({ t: 'move', x: E.x + .5, y: E.y + 3.5 }); await sleep(1500);
+  await say(A, '/레벨 45 도적베스'); B.send({ t: 'move', x: E.x + .5, y: E.y + 3.5 });   // sturdy enough to idle among the roaming monsters at the stairs await sleep(1500);
   B.chat.length = 0; await say(A, '/파티 초대 도적베스'); B.send({ t: 'paccept' }); await sleep(600);
   check(A.me[21] && A.me[21] === B.me[21], 'A and B form a party for the dungeon');
   // A takes the 보통 stairs and gets a fresh copy; B takes the 어려움 stairs but joins the party's copy
@@ -301,7 +301,8 @@ A.send({ t: 'chat', msg: '/습격' }); await sleep(600); check(A.said('이미 �
   check(haz, '고르막 drops burning puddles (warning first, then fire) under players');
   await say(A, '/처치');
   // boss 3 — 바르테스: at 70% he wards himself behind guardians; immune until they fall
-  A.evs.length = 0; await tp(A, S, 13, 36); await say(A, '/체력 65'); const abbot = sees(A, 'abbey_abbot')[0]; A.send({ t: 'attack', id: abbot?.[0] });
+  // full health for the abbot and his guardians
+  await say(A, '/레벨 60'); A.evs.length = 0; await tp(A, S, 13, 36); await say(A, '/체력 65'); const abbot = sees(A, 'abbey_abbot')[0]; A.send({ t: 'attack', id: abbot?.[0] });
   let ward = false; for (let i = 0; i < 40 && !ward; i++) { await sleep(100); ward = A.evs.some(e => e.k === 'fx' && e.fx === 'ward' && e.id === abbot?.[0]); }
   await sleep(1200); const guards = sees(A, 'abbey_guard');
   check(ward && guards.length >= 3 && (A.ents.get(abbot?.[0])?.[6] & 128), `바르테스 wards himself and calls ${guards.length} guardians`);
@@ -315,6 +316,7 @@ A.send({ t: 'chat', msg: '/습격' }); await sleep(600); check(A.said('이미 �
   await tp(A, S, 18, 4); A.send({ t: 'move', x: S.x0 + WD.ABBEY.exit[0] + .5, y: S.y0 + WD.ABBEY.exit[1] + .5 }); B.send({ t: 'move', x: S.x0 + WD.ABBEY.exit[0] + .5, y: S.y0 + WD.ABBEY.exit[1] + .5 }); await sleep(4000);
   check(slotOf(A) < 0 && slotOf(B) < 0 && A.said('수도원 밖으로'), 'the exit stairs lead back out');
   await sleep(5500); check((await health()).instances === 0, 'an empty copy is cleaned up after the idle time');
+  await say(A, '/레벨 45 도적베스');   // back to full health before the next run
   // 어려움: B (still standing at the stairs) takes the right-hand stairs and gets a copy whose monsters are tougher
   B.chat.length = 0; B.send({ t: 'move', x: E.x + 1.5, y: E.y + .5 }); await sleep(2500); await sleep(800);
   const bSlot = slotOf(B), hm = sees(B, 'abbey_monk')[0];
