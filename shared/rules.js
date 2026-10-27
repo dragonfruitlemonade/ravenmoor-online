@@ -94,29 +94,76 @@ export const NPCS = [
 
 export const CLASSES = {
   commoner: { name: '평민', hp: 22, mp: 8, atk: 3, def: 1.2 },
-  knight: { name: '기사', master: '기사단장 가웨인', hp: 30, mp: 6, atk: 3, def: 1.8, bonus: { hp: 80, def: 5 },
-    desc: '성벽을 지키는 중갑 전사. 체력과 방어가 가장 높습니다.', skill: { id: 'bash', name: '방패 강타', mp: 12, cd: 6000, range: 1.6, desc: '2.2배 피해 + 1.5초 기절' } },
-  mage: { name: '마법사', master: '대마법사 이졸데', hp: 16, mp: 18, atk: 3.5, def: .8, bonus: { mp: 80, atk: 4 }, ranged: 4.5, dmg: 1.2,
-    desc: '탑의 학자. 원거리에서 마력탄을 쏘고 화염구로 무리를 태웁니다.', skill: { id: 'fireball', name: '화염구', mp: 25, cd: 8000, range: 5.5, desc: '대상 주변 2칸의 적 모두에게 1.8배 피해' } },
-  cleric: { name: '성직자', master: '사제 안셀', hp: 24, mp: 14, atk: 2.6, def: 1.4, bonus: { hp: 40, mp: 50, def: 2 },
-    desc: '빛의 종. 치유가 강해지고 신성한 빛으로 주변을 정화합니다.', skill: { id: 'holy', name: '신성한 빛', mp: 20, cd: 9000, range: 0, desc: '주변 3칸 적에게 1.4배 피해, 자신 HP 25% 회복' } },
-  rogue: { name: '도적', master: '여관 뒷방의 라스', hp: 20, mp: 8, atk: 4, def: 1, bonus: { atk: 6 }, aspd: 1.25,
-    desc: '그림자 속의 칼날. 공격이 빠르고 급소 찌르기로 출혈을 일으킵니다.', skill: { id: 'backstab', name: '급소 찌르기', mp: 12, cd: 6000, range: 1.6, desc: '2.6배 피해 + 5초 출혈' } },
+  knight: { name: '기사', master: '기사단장 가웨인', hp: 30, mp: 6, atk: 3, def: 1.8, bonus: { hp: 80, def: 5 }, threat: 1.6, role: '방어',
+    desc: '성벽을 지키는 중갑 전사. 적의 눈길을 끌어 동료를 지키고, 맞을수록 투지가 차오릅니다.' },
+  mage: { name: '마법사', master: '대마법사 이졸데', hp: 16, mp: 18, atk: 3.5, def: .8, bonus: { mp: 80, atk: 4 }, ranged: 4.5, dmg: 1.2, role: '공격',
+    desc: '탑의 학자. 주문을 외워 멀리서 무리를 태우고, 적의 주문을 끊습니다.' },
+  cleric: { name: '성직자', master: '사제 안셀', hp: 24, mp: 14, atk: 2.6, def: 1.4, bonus: { hp: 40, mp: 50, def: 2 }, role: '치유',
+    desc: '빛의 종. 동료를 치유하고 보호막을 씌웁니다.' },
+  rogue: { name: '도적', master: '여관 뒷방의 라스', hp: 20, mp: 8, atk: 4, def: 1, bonus: { atk: 6 }, aspd: 1.25, role: '공격',
+    desc: '그림자 속의 칼날. 칼질로 칼자국을 쌓고 급소 찌르기로 한꺼번에 터뜨립니다.' },
 };
 export const CLASS_LEVEL = 10, ADV_LEVEL = 20;
 export const ADV = {
   paladin: { name: '팔라딘', from: 'knight', master: '기사단장 가웨인', hall: 'knights', bonus: { hp: 120, def: 6, mp: 30 }, dmg: 1.1,
-    desc: '빛의 맹세를 한 기사. 신성 일격으로 적을 치며 자신을 치유합니다.', skill2: { id: 'smite', name: '신성 일격', mp: 20, cd: 8000, range: 1.6, desc: '2.6배 피해 + 자신 HP 12% 회복' } },
+    desc: '빛의 맹세를 한 기사. 신성 일격으로 적을 치며 자신을 치유합니다.' },
   archmage: { name: '대마법사', from: 'mage', master: '대마법사 이졸데', hall: 'magetower', bonus: { mp: 120, atk: 8 }, dmg: 1.45, ranged: 5,
-    desc: '탑의 주인. 번개 사슬이 가까운 적 넷을 꿰뚫습니다.', skill2: { id: 'chain', name: '번개 사슬', mp: 30, cd: 9000, range: 6, desc: '대상부터 가까운 적 최대 4명에게 1.5배 피해' } },
+    desc: '탑의 주인. 번개 사슬이 가까운 적 넷을 꿰뚫습니다.' },
   bishop: { name: '주교', from: 'cleric', master: '사제 안셀', hall: 'chapel', bonus: { hp: 60, mp: 80, def: 4 },
-    desc: '빛의 목자. 축복으로 15초간 자신을 강화합니다.', skill2: { id: 'bless', name: '축복', mp: 25, cd: 15000, range: 0, desc: '15초간 공격·방어 +25%, HP 30% 회복' } },
+    desc: '빛의 목자. 축복으로 자신을 강화하고 동료를 지킵니다.' },
   assassin: { name: '암살자', from: 'rogue', master: '여관 뒷방의 라스', hall: 'inn', bonus: { atk: 12, hp: 40 }, aspd: 1.4,
-    desc: '그림자 그 자체. 연막 뒤에서 세 번 연속으로 찌릅니다.', skill2: { id: 'flurry', name: '연속 찌르기', mp: 22, cd: 9000, range: 1.6, desc: '1.2배 피해 3회, 마지막은 반드시 치명타' } },
+    desc: '그림자 그 자체. 눈 깜짝할 새 세 번 찌릅니다.' },
 };
 export const ADV_OF = Object.fromEntries(Object.entries(ADV).map(([k, v]) => [v.from, k]));
 
-export function classInfo(cls) { if (ADV[cls]) { const a = ADV[cls], base = CLASSES[a.from]; return { ...base, ...a, skill: base.skill, isAdv: true }; } return CLASSES[cls] || CLASSES.commoner; }
+export function classInfo(cls) { if (ADV[cls]) { const a = ADV[cls], base = CLASSES[a.from]; return { ...base, ...a, isAdv: true }; } return CLASSES[cls] || CLASSES.commoner; }
+export const baseClass = cls => ADV[cls] ? ADV[cls].from : (CLASSES[cls] ? cls : 'commoner');
+
+// ── combat: class resources, skills and the global cooldown. Server and client read the same numbers.
+// mana: the usual pool. grit (기사): starts empty, fills when you hit or get hit, drains out of combat.
+// breath (도적): 100, refills fast; 칼질 adds 칼자국 (up to 5) which 급소 찌르기 spends all at once.
+export const GCD = 1000;
+export const RESOURCES = { mana: { name: '마나' }, grit: { name: '투지', max: 100 }, breath: { name: '호흡', max: 100 } };
+export const resourceOf = cls => ({ knight: 'grit', rogue: 'breath' })[baseClass(cls)] || 'mana';
+export const MAX_CUTS = 5;
+// target: 'enemy' (default when range > 0), 'self', 'ally' (a friendly player you have selected, else yourself), none for range 0 area skills.
+// range 'weapon' = your attack range. offGcd skills ignore and don't trigger the global cooldown.
+export const SKILLS = {
+  power:     { name: '힘껏 치기',   cost: 10, cd: 6000,  range: 'weapon', mul: 1.6, desc: '무기로 1.6배 피해' },
+  first_aid: { name: '응급 치료',   cost: 15, cd: 10000, cast: 1500, target: 'self', heal: .3, desc: '1.5초 시전 · 체력 30% 회복' },
+  // 기사
+  bash:      { name: '방패 강타',   cost: 20, cd: 8000,  range: 1.6, mul: 1.6, stun: 1500, interrupt: true, threat: 2, desc: '1.6배 피해 · 1.5초 기절 · 시전 끊기' },
+  cleave:    { name: '휩쓸기',      cost: 25, cd: 6000,  aoe: 1.9, mul: 1.1, threat: 2.5, desc: '주변 적 모두 1.1배 피해 · 위협 크게' },
+  challenge: { name: '도전의 함성', cost: 0,  cd: 12000, aoe: 3.5, taunt: 4000, gain: 20, offGcd: true, desc: '주변 적이 4초간 나만 노림 · 투지 +20' },
+  bulwark:   { name: '철벽 자세',   cost: 30, cd: 30000, buff: 'bulwark', dur: 6000, offGcd: true, desc: '6초간 받는 피해 40% 감소' },
+  smite:     { name: '신성 일격',   adv: 'paladin', cost: 30, cd: 9000, range: 1.6, mul: 2.4, selfHeal: .12, desc: '2.4배 피해 · 체력 12% 회복' },
+  // 마법사
+  fireball:  { name: '화염구',      cost: 25, cd: 5000,  cast: 1500, range: 6, aoeAt: 2.2, mul: 1.9, proj: true, desc: '1.5초 시전 · 대상 주변 2칸 1.9배 피해' },
+  frostring: { name: '서리 고리',   cost: 20, cd: 12000, aoe: 2.6, mul: .8, slow: 4000, desc: '주변 적 0.8배 피해 · 4초 둔화' },
+  silence:   { name: '마력 차단',   cost: 10, cd: 15000, range: 6, mul: .3, interrupt: true, offGcd: true, desc: '시전 끊기 · 약한 피해' },
+  barrier:   { name: '마나 보호막', cost: 30, cd: 20000, target: 'self', shield: .3, dur: 10000, desc: '10초간 최대 체력 30%만큼 피해 흡수' },
+  chain:     { name: '번개 사슬',   adv: 'archmage', cost: 30, cd: 9000, range: 6, chain: 4, mul: 1.5, desc: '가까운 적 4명까지 1.5배 피해' },
+  // 성직자
+  mend:      { name: '치유의 손길', cost: 20, cd: 0,     cast: 1500, range: 6, target: 'ally', heal: .35, desc: '1.5초 시전 · 선택한 동료(없으면 자신) 체력 35% 회복' },
+  ward:      { name: '보호의 기도', cost: 25, cd: 12000, range: 6, target: 'ally', shield: .25, dur: 10000, desc: '선택한 동료(없으면 자신)에게 체력 25% 보호막' },
+  holy:      { name: '신성한 빛',   cost: 25, cd: 9000,  aoe: 3, mul: 1.3, selfHeal: .15, desc: '주변 적 1.3배 피해 · 체력 15% 회복' },
+  rebuke:    { name: '꾸짖음',      cost: 10, cd: 15000, range: 5, mul: .6, interrupt: true, offGcd: true, desc: '시전 끊기 · 0.6배 피해' },
+  bless:     { name: '축복',        adv: 'bishop', cost: 30, cd: 20000, target: 'self', buff: 'bless', dur: 15000, selfHeal: .2, desc: '15초간 공격·방어 +25% · 체력 20% 회복' },
+  // 도적
+  slash:     { name: '칼질',        cost: 30, cd: 0,     range: 1.6, mul: 1.25, cuts: 1, desc: '1.25배 피해 · 칼자국 +1' },
+  backstab:  { name: '급소 찌르기', cost: 30, cd: 0,     range: 1.6, finisher: true, mul: .8, perCut: .45, bleed: 5000, desc: '칼자국을 모두 써서 0.8배 + 칼자국마다 0.45배 · 출혈' },
+  throat:    { name: '목 치기',     cost: 20, cd: 12000, range: 1.6, mul: .5, interrupt: true, offGcd: true, desc: '시전 끊기 · 0.5배 피해' },
+  smoke:     { name: '연막탄',      cost: 20, cd: 25000, vanish: 8, offGcd: true, desc: '주변 적이 나를 잊음(위협 초기화)' },
+  flurry:    { name: '연속 찌르기', adv: 'assassin', cost: 40, cd: 9000, range: 1.6, hits: 3, mul: 1.0, cuts: 2, desc: '1.0배 3회 · 칼자국 +2' },
+};
+const SKILLBOOK = { commoner: ['power', 'first_aid'], knight: ['bash', 'cleave', 'challenge', 'bulwark', 'first_aid'], mage: ['fireball', 'frostring', 'silence', 'barrier', 'first_aid'], cleric: ['mend', 'ward', 'holy', 'rebuke'], rogue: ['slash', 'backstab', 'throat', 'smoke', 'first_aid'] };
+// the skills on a class's bar (keys 1..6): base class book, the advanced class's own skill slotted before 응급 치료
+export function skillsFor(cls) {
+  const list = [...SKILLBOOK[baseClass(cls)]]; const extra = Object.keys(SKILLS).find(k => SKILLS[k].adv === cls);
+  if (extra) list.splice(list.includes('first_aid') ? list.length - 1 : list.length, 0, extra); return list;
+}
+export const skillRange = (s, attackRange) => s.range === 'weapon' ? attackRange + .3 : (s.range || 0);
+export const skillCostText = (s, cls) => s.cost ? `${RESOURCES[resourceOf(cls)].name} ${s.cost}` : '소모 없음';
 export function statsFor(level, cls = 'commoner') {
   const c = CLASSES.commoner; const adv = ADV[cls]; const baseCls = adv ? adv.from : cls; const k = CLASSES[baseCls] || c;
   const lv1 = Math.min(level, CLASS_LEVEL) - 1, lv2 = baseCls === 'commoner' ? level - Math.min(level, CLASS_LEVEL) : level - CLASS_LEVEL;

@@ -1,6 +1,6 @@
 // Ravenmoor Online client: renders the shared map and baked 3D sprites, sends intentions to the server.
 import { MAP, OVER, TILE_W as TW, TILE_H as TH, G, TOWN, CX, CY, GATES, BUILDINGS, LOOKS, DUNGEON, PORTALS, CRYPT_FLOOR_NAME, buildWorld, isSafe, inDungeon, cryptFloor, noise } from '/shared/world.js';
-import { ITEMS, CLASSES, classInfo } from '/shared/rules.js';
+import { ITEMS, CLASSES, classInfo, SKILLS, GCD, RESOURCES, MAX_CUTS, skillsFor, skillCostText } from '/shared/rules.js';
 import { createUI, iconSrc } from '/client/ui.js';
 import { initAudio, toggleMute, isMuted, sfx, sfxAt, setAmbience } from '/client/audio.js';
 
@@ -205,7 +205,7 @@ const ARM_CURSOR = `url("data:image/svg+xml,${encodeURIComponent('<svg xmlns="ht
 function saveSettings() { try { localStorage.setItem('rm-settings', JSON.stringify(SETTINGS)); } catch {} applySettings(); }
 function applySettings() { $('minimap').classList.toggle('big', !!SETTINGS.mmBig); if (!SETTINGS.rts) armAttack(false);
   $('ctrlhint').innerHTML = SETTINGS.rts ? '<kbd>우클릭</kbd> 이동·공격·줍기·대화 <kbd>좌클릭</kbd> 선택 <kbd>A</kbd>+클릭 공격(땅: 싸우며 이동)' : '<kbd>클릭</kbd> 이동·공격·줍기·대화 <kbd>우클릭</kbd> 상대 메뉴'; }
-function openSettings() { const w = $('settings'); w.hidden = !w.hidden; if (w.hidden) return; w.innerHTML = `<div class="wh"><span class="wt">설정</span><button class="wx" id="setx">✕</button></div><div class="wb"><label><input type="checkbox" data-s="sound" ${isMuted() ? '' : 'checked'}> 효과음·환경음</label><label><input type="checkbox" data-s="names" ${SETTINGS.names ? 'checked' : ''}> 이름표 표시</label><label><input type="checkbox" data-s="hideOthersNames" ${SETTINGS.hideOthersNames ? 'checked' : ''}> 다른 모험가 이름 숨기기</label><label><input type="checkbox" data-s="rts" ${SETTINGS.rts ? 'checked' : ''}> RTS식 조작 (오른쪽 클릭 이동, A+클릭 공격)</label><label><input type="checkbox" data-s="dmg" ${SETTINGS.dmg ? 'checked' : ''}> 피해 숫자 표시</label><label><input type="checkbox" data-s="mmBig" ${SETTINGS.mmBig ? 'checked' : ''}> 큰 미니맵</label><div class="row"><button class="btn" id="zoomReset">확대 초기화</button><button class="btn" id="setLogout">로그아웃</button></div><p class="ds">단축키: A 공격(RTS식: A+클릭, A 두 번은 가장 가까운 적) ·H 치유 · S/D 기술 · 1·2·3 물약·귀향 · Z 줍기 · I 가방 · E 장비 · C 캐릭터 · Q 의뢰 · L 순위 · M 소리 · O 설정 · R 귓속말 답장 · Esc 멈춤</p></div>`;
+function openSettings() { const w = $('settings'); w.hidden = !w.hidden; if (w.hidden) return; w.innerHTML = `<div class="wh"><span class="wt">설정</span><button class="wx" id="setx">✕</button></div><div class="wb"><label><input type="checkbox" data-s="sound" ${isMuted() ? '' : 'checked'}> 효과음·환경음</label><label><input type="checkbox" data-s="names" ${SETTINGS.names ? 'checked' : ''}> 이름표 표시</label><label><input type="checkbox" data-s="hideOthersNames" ${SETTINGS.hideOthersNames ? 'checked' : ''}> 다른 모험가 이름 숨기기</label><label><input type="checkbox" data-s="rts" ${SETTINGS.rts ? 'checked' : ''}> RTS식 조작 (오른쪽 클릭 이동, A+클릭 공격)</label><label><input type="checkbox" data-s="dmg" ${SETTINGS.dmg ? 'checked' : ''}> 피해 숫자 표시</label><label><input type="checkbox" data-s="mmBig" ${SETTINGS.mmBig ? 'checked' : ''}> 큰 미니맵</label><div class="row"><button class="btn" id="zoomReset">확대 초기화</button><button class="btn" id="setLogout">로그아웃</button></div><p class="ds">단축키: A 공격(RTS식: A+클릭, A 두 번은 가장 가까운 적) ·1~6 직업 기술 · 7·8·9 물약·귀향 · Z 줍기 · I 가방 · E 장비 · C 캐릭터 · Q 의뢰 · L 순위 · M 소리 · O 설정 · R 귓속말 답장 · Esc 멈춤</p></div>`;
   $('setx').onclick = () => { w.hidden = true; }; $('zoomReset').onclick = () => { zoom = defaultZoom(); zoomSet = false; }; $('setLogout').onclick = () => $('logout').click();
   for (const c of w.querySelectorAll('input[data-s]')) c.onchange = () => { if (c.dataset.s === 'sound') { const mu = toggleMute(); $('muteBtn').querySelector('small').textContent = mu ? '음소거' : '소리'; return; } SETTINGS[c.dataset.s] = c.checked; saveSettings(); }; }
 const rainDrops = []; const floats = [], bolts = [], clicks = [], rings = [], tele = [], chainsFx = []; let hurtT = -1e9, hurtAmt = 0, deadAt = 0, entering = false, underAmt = 0, jumped = false; let raidState = null, weather = 0, weatherAmt = 0, hoverId = 0, dayPhase = 0, questMarks = {}, party = null, isAdminUser = false, lastWhisper = null;
@@ -221,7 +221,7 @@ function showInvite(m) {
   box.appendChild(d); setTimeout(() => d.remove(), m.kind === 'party' ? 60000 : 30000); sfx.quest();
 }
 // one-time tips for newcomers (remembered per browser)
-const TIPS = { move: '마우스: 오른쪽 클릭으로 이동하고, 몬스터를 오른쪽 클릭하면 공격합니다. A를 누른 뒤 클릭하면 그 대상을 공격하고, 땅을 클릭하면 가는 길의 몬스터와 싸우며 이동합니다. 왼쪽 클릭은 선택. (설정에서 예전 방식으로 바꿀 수 있습니다) 터치: 누르면 이동·공격·대화.', outside: '성 밖입니다. 6레벨부터는 다른 모험가가 공격해 올 수 있습니다. 귀향 두루마리(3)로 언제든 마을로 돌아갑니다.', lowhp: '체력이 낮습니다! 1번 키로 물약을 마시거나 H로 치유하세요. 싸움을 멈추면 서서히 회복되고, 마을 안에서는 두 배로 빠릅니다.', drop: '바닥의 전리품은 클릭하거나 Z 키로 줍습니다. 10초 동안은 처치한 사람에게 우선권이 있습니다.', bag: '가방(I)에서 물건을 두 번 누르면 사용하거나 장착합니다. 장비(E)와 캐릭터(C) 창도 확인해 보세요.', party: '다른 모험가를 우클릭하면 파티 초대·거래·귓속말을 할 수 있습니다. 파티는 경험치를 나누고 서로 공격할 수 없습니다.', crypt: '지하 묘지입니다. 남쪽(안쪽)으로 갈수록 망자들이 강해지고, 가장 깊은 방에는 묘지기 모르바스가 있습니다. 입구 옆 보라색 계단으로 언제든 지상에 올라갈 수 있습니다.', boss: '보스는 혼자서는 버겁습니다. 바닥에 붉은 원이 보이면 범위 공격 예고이니 피하세요. 파티를 모아 도전하세요.' };
+const TIPS = { move: '마우스: 오른쪽 클릭으로 이동하고, 몬스터를 오른쪽 클릭하면 공격합니다. A를 누른 뒤 클릭하면 그 대상을 공격하고, 땅을 클릭하면 가는 길의 몬스터와 싸우며 이동합니다. 왼쪽 클릭은 선택. (설정에서 예전 방식으로 바꿀 수 있습니다) 터치: 누르면 이동·공격·대화.', outside: '성 밖입니다. 6레벨부터는 다른 모험가가 공격해 올 수 있습니다. 귀향 두루마리(9)로 언제든 마을로 돌아갑니다.', lowhp: '체력이 낮습니다! 7번 키로 물약을 마시거나 응급 치료(기술 칸)를 쓰세요. 싸움을 멈추면 서서히 회복되고, 마을 안에서는 두 배로 빠릅니다.', drop: '바닥의 전리품은 클릭하거나 Z 키로 줍습니다. 10초 동안은 처치한 사람에게 우선권이 있습니다.', bag: '가방(I)에서 물건을 두 번 누르면 사용하거나 장착합니다. 장비(E)와 캐릭터(C) 창도 확인해 보세요.', party: '다른 모험가를 우클릭하면 파티 초대·거래·귓속말을 할 수 있습니다. 파티는 경험치를 나누고 서로 공격할 수 없습니다.', crypt: '지하 묘지입니다. 남쪽(안쪽)으로 갈수록 망자들이 강해지고, 가장 깊은 방에는 묘지기 모르바스가 있습니다. 입구 옆 보라색 계단으로 언제든 지상에 올라갈 수 있습니다.', boss: '보스는 혼자서는 버겁습니다. 바닥에 붉은 원이 보이면 범위 공격 예고이니 피하세요. 파티를 모아 도전하세요.' };
 let tipsSeen = {}; try { tipsSeen = JSON.parse(localStorage.getItem('rm-tips') || '{}'); } catch {}
 function tip(key) { if (tipsSeen[key] || !TIPS[key]) return; tipsSeen[key] = 1; try { localStorage.setItem('rm-tips', JSON.stringify(tipsSeen)); } catch {} const n = $('tip'); n.innerHTML = `<b>도움말</b> ${esc(TIPS[key])}`; n.hidden = false; clearTimeout(tip.t); tip.t = setTimeout(() => n.hidden = true, 12000); addLog('💡 ' + TIPS[key], 'sys'); }
 function showNotice(text, ms = 8000) { const n = $('notice'); n.textContent = text; n.hidden = false; clearTimeout(showNotice.t); showNotice.t = setTimeout(() => n.hidden = true, ms); }
@@ -279,13 +279,20 @@ function onMsg(m) {
         // show who is hitting us when we have no target yet (monsters and PKers that strike first)
         const a = ents.get(m.a); if (a && !targetId && a.kind !== 4 && a.st !== 4) targetId = a.id; }
       else sfxAt(m.c ? 'crit' : 'hit', dist(b));
-      if (SETTINGS.dmg || mine) floats.push({ x: b.rx, y: b.ry, h: headY(b), dx: (Math.random() - .5) * 26, txt: m.c ? m.v + '!' : String(m.v), col: mine ? '#ff7b6b' : m.c ? '#ffd86b' : byMe ? '#ffffff' : '#c8c2b4', big: !!m.c, pop: !!m.c, t0: t }); } }
+      if (m.ab && (SETTINGS.dmg || mine)) floats.push({ x: b.rx, y: b.ry, h: headY(b) + 14, dx: (Math.random() - .5) * 20, txt: `흡수 ${m.ab}`, col: '#9fd0ff', t0: t });
+      if ((SETTINGS.dmg || mine) && (m.v || !m.ab)) floats.push({ x: b.rx, y: b.ry, h: headY(b), dx: (Math.random() - .5) * 26, txt: m.c ? m.v + '!' : String(m.v), col: mine ? '#ff7b6b' : m.c ? '#ffd86b' : byMe ? '#ffffff' : '#c8c2b4', big: !!m.c, pop: !!m.c, t0: t }); } }
+    else if (m.k === 'cast') { const e = ents.get(m.id); if (e) e.castInfo = { name: m.n || (SKILLS[m.s] ? SKILLS[m.s].name : ''), t0: t, ms: m.ms, intr: m.s ? true : !!m.intr }; }
+    else if (m.k === 'castend') { const e = ents.get(m.id); if (e) { e.castInfo = null; if (m.cut) { floats.push({ x: e.rx, y: e.ry, h: headY(e) + 6, txt: '차단!', col: '#9fd0ff', big: true, pop: true, t0: t }); if (m.id !== myId) sfxAt('stun', dist(e)); } } if (m.id === myId) myCast = null; }
     else if (m.k === 'xp') { const e = ents.get(m.id); if (e) floats.push({ x: e.rx, y: e.ry, h: headY(e) + 14, txt: `+${m.v} EXP`, col: '#c9a6ff', t0: t + 180, life: 1300 }); }
     else if (m.k === 'die') { const e = ents.get(m.id); if (e) sfxAt('die', dist(e)); }
     else if (m.k === 'lvl') { const e = ents.get(m.id); if (e) { if (m.id === myId) sfx.level(); floats.push({ x: e.rx, y: e.ry, h: headY(e) + 10, txt: m.txt || 'LEVEL UP!', col: '#ffd86b', big: true, t0: t, life: 1800 }); rings.push({ x: e.rx, y: e.ry, col: '255,216,107', t0: t, life: 900, r: 40 }); } }
     else if (m.k === 'fx') {
       const e = ents.get(m.id);
       if (m.fx === 'heal' || m.fx === 'mana') { if (e) { if (m.id === myId) sfx.heal(); floats.push({ x: e.rx, y: e.ry, h: headY(e), txt: '+' + m.v, col: m.fx === 'heal' ? '#8fd79a' : '#7fb4ff', t0: t }); rings.push({ x: e.rx, y: e.ry, col: m.fx === 'heal' ? '143,215,154' : '127,180,255', t0: t, life: 600, r: 22 }); } }
+      else if (m.fx === 'frost') { sfx.chain(); rings.push({ x: m.x, y: m.y, col: '150,210,255', t0: t, life: 700, r: 80, fill: true }); }
+      else if (m.fx === 'taunt') { sfx.roar(); rings.push({ x: m.x, y: m.y, col: '255,110,80', t0: t, life: 700, r: 105 }); if (e) floats.push({ x: e.rx, y: e.ry, h: headY(e) + 8, txt: '도전!', col: '#ff9a6a', big: true, t0: t }); }
+      else if (m.fx === 'shield' && e) { sfxAt('heal', dist(e)); rings.push({ x: e.rx, y: e.ry, col: '150,200,255', t0: t, life: 800, r: 30 }); }
+      else if (m.fx === 'smoke') { rings.push({ x: m.x, y: m.y, col: '150,150,160', t0: t, life: 900, r: 70, fill: true }); }
       else if (m.fx === 'fire') { sfx.fire(); rings.push({ x: m.x, y: m.y, col: '255,140,40', t0: t, life: 700, r: 70, fill: true }); }
       else if (m.fx === 'holy') { sfx.heal(); rings.push({ x: m.x, y: m.y, col: '255,243,176', t0: t, life: 800, r: 95, fill: true }); }
       else if (m.fx === 'tele' && e) { sfx.tele(); rings.push({ x: e.rx, y: e.ry, col: '184,160,255', t0: t, life: 700, r: 30, fill: true }); }
@@ -359,16 +366,14 @@ addEventListener('keydown', ev => {
   if (inChat) { if (ev.key === 'Escape') $('chatin').blur(); return; }
   const k = ev.key.toLowerCase();
   if (k === 'escape') { if (attackArmed) armAttack(false); else if (ui.anyOpen()) ui.closeAll(); else { send({ t: 'stop' }); targetId = 0; } }
-  else if (k === 'h') send({ t: 'heal' });
-  else if (k === 's') send({ t: 'skill', id: targetId || undefined });
-  else if (k === 'd') send({ t: 'skill2' });
+  else if (k >= '1' && k <= '6' && k.length === 1) castSlot(+k - 1);
   else if (k === 'm') { const mu = toggleMute(); addLog(mu ? '소리를 껐습니다.' : '소리를 켰습니다.', 'sys'); $('muteBtn').querySelector('small').textContent = mu ? '음소거' : '소리'; }
   else if (k === 'q') { ui.toggle('quest'); send({ t: 'quests' }); }
   else if (k === 'o') openSettings();
   else if (k === 'g') { if (ui.isOpen('guild')) ui.hide('guild'); else send({ t: 'guild', args: ['정보'] }); }
   else if (k === 'l') send({ t: 'leaderboard' });
   else if (k === 'r' && lastWhisper) { $('chatin').value = `/귓 ${lastWhisper} `; $('chatin').focus(); ev.preventDefault(); }
-  else if (k === '1' || k === '2' || k === '3') { const id = { 1: 'hpPotion', 2: 'mpPotion', 3: 'scroll' }[k]; const i = ui.firstOf(id); if (i >= 0) send({ t: 'use', i, id }); else addLog(`${ITEMS[id].name}이(가) 없습니다.`, 'sys'); }
+  else if (k === '7' || k === '8' || k === '9') { const id = { 7: 'hpPotion', 8: 'mpPotion', 9: 'scroll' }[k]; const i = ui.firstOf(id); if (i >= 0) send({ t: 'use', i, id }); else addLog(`${ITEMS[id].name}이(가) 없습니다.`, 'sys'); }
   else if (k === 'i') ui.toggle('inv'); else if (k === 'e') ui.toggle('eq'); else if (k === 'c') ui.toggle('char');
   else if (k === 'z' && me) send({ t: 'pickall' });
   // RTS: A arms an attack click; A again (or A on a touch screen, or classic mode) hits the nearest monster
@@ -452,6 +457,22 @@ function star(g, x, y, r) { g.beginPath(); for (let i = 0; i < 10; i++) { const 
 // ───────────────────────── HUD
 let lastZone = '';
 const nightLabel = p => { const n = Math.sin((p - .25) * Math.PI * 2); return n < .2 ? '낮' : n < .6 ? (p < .5 ? '황혼' : '새벽') : '밤'; };
+// ── skill bar (keys 1..6), rebuilt whenever your class changes; clicking a button casts on your current target
+let barCls = null, myCast = null;
+const BUFF_NAME = { bless: '축복', bulwark: '철벽', shield: '보호막', bleed: '출혈', slow: '둔화', stun: '기절', taunt: '도발됨' };
+const STATUS_BITS = [[1, 'stun'], [2, 'bleed'], [4, 'slow'], [8, 'shield'], [16, 'bulwark'], [32, 'bless'], [64, 'taunt']];
+function castSlot(i) { if (!meStats) return; const id = skillsFor(meStats[11])[i]; if (id) send({ t: 'cast', id, tid: targetId || 0 }); }
+function buildSkillbar(cls) {
+  barCls = cls; const box = $('skillbar'); box.innerHTML = '';
+  skillsFor(cls).forEach((id, i) => { const s = SKILLS[id], b = document.createElement('button'); b.className = 'hk sk'; b.dataset.skill = id;
+    b.title = `${s.name} — ${s.desc}\n${skillCostText(s, cls)}${s.cd ? ` · 재사용 ${s.cd / 1000}초` : ''}${s.cast ? ` · 시전 ${s.cast / 1000}초` : ' · 즉시'}${s.offGcd ? ' · 공통 대기 없음' : ''}`;
+    b.innerHTML = `<kbd>${i + 1}</kbd><small>${s.name}</small><i class="cd"></i><b class="cdt"></b>`; b.onclick = () => castSlot(i); box.appendChild(b); });
+}
+// cast bars: yours above the hotbar, everyone else's over their head and in the target frame
+function drawCastBars(t) {
+  const cb = $('castbar'); if (myCast && myCast.end > t) { const p = 1 - (myCast.end - t) / myCast.total; cb.hidden = false; cb.querySelector('i').style.width = (100 * clamp(p, 0, 1)) + '%'; cb.querySelector('span').textContent = `${SKILLS[myCast.id].name} ${((myCast.end - t) / 1000).toFixed(1)}`; } else cb.hidden = true;
+  const tg = ents.get(targetId), tc = $('tcast'); const ci = tg && tg.castInfo; if (ci && t < ci.t0 + ci.ms) { tc.hidden = false; tc.classList.toggle('intr', ci.intr); tc.querySelector('i').style.width = (100 * (t - ci.t0) / ci.ms) + '%'; tc.querySelector('span').textContent = ci.name + (ci.intr ? ' · 끊을 수 있음' : ''); } else tc.hidden = true;
+}
 let camOff = 0; const bottomEl = document.querySelector('#hud .bottom');
 function hud() {
   if (!meStats) return;
@@ -464,14 +485,24 @@ function hud() {
   if (me) { const safe = isSafe(me.x, me.y), under = inDungeon(me.x, me.y); const z = under ? `지하 묘지 · ${CRYPT_FLOOR_NAME[cryptFloor(me.y)]}` : safe ? '성내 · 안전 지대' : '성 밖 · PK 허용';
     if (z !== lastZone) { lastZone = z; $('zonet').textContent = z; $('zone').classList.toggle('danger', !safe); $('zone').classList.toggle('crypt', under); if (under) { tip('crypt'); showNotice(z, 3000); } else if (!safe) tip('outside'); } }
   if (hp < mhp * .4 && hp > 0) tip('lowhp'); if (meStats[21]) tip('party');
-  $('online').textContent = `주변 ${online}명 · ${latency}ms`; $('pcls').textContent = classInfo(meStats[11]).name; const sk = classInfo(meStats[11]).skill; $('skName').textContent = sk ? sk.name : '기술'; $('cdH').style.height = (100 * Math.min(1, meStats[12] / 5000)) + '%'; $('cdS').style.height = (sk ? 100 * Math.min(1, meStats[13] / meStats[14]) : 100) + '%';
-  const sk2 = classInfo(meStats[11]).skill2; $('sk2Name').textContent = sk2 ? sk2.name : '기술2'; $('cdD').style.height = (sk2 ? 100 * Math.min(1, meStats[18] / meStats[19]) : 100) + '%';
+  $('online').textContent = `주변 ${online}명 · ${latency}ms`; $('pcls').textContent = classInfo(meStats[11]).name;
+  // skills: cooldown sweep per button (its own cooldown or the global one, whichever is longer), dimmed when you lack the resource
+  const cls = meStats[11], res = meStats[22] || 'mana'; if (cls !== barCls) buildSkillbar(cls);
+  $('mpbar').className = 'bar mp ' + res; $('mpt').textContent = `${RESOURCES[res].name} ${mp} / ${mmp}`;
+  const cds = meStats[25] || {}, gcd = meStats[24] || 0;
+  for (const b of $('skillbar').children) { const id = b.dataset.skill, s = SKILLS[id]; const own = cds[id] || 0, g = s.offGcd ? 0 : gcd; const left = Math.max(own, g), tot = own >= g ? s.cd : GCD;
+    b.querySelector('.cd').style.height = (left ? 100 * Math.min(1, left / tot) : 0) + '%'; b.querySelector('.cdt').textContent = own > 1500 ? Math.ceil(own / 1000) : '';
+    b.classList.toggle('nores', mp < s.cost || (s.finisher && !meStats[23])); }
+  const cutsEl = $('cuts'); cutsEl.hidden = res !== 'breath'; if (res === 'breath') cutsEl.innerHTML = '칼자국 ' + Array.from({ length: MAX_CUTS }, (_, i) => `<i class="${i < meStats[23] ? 'on' : ''}"></i>`).join('');
+  $('buffs').innerHTML = (meStats[27] || []).map(([k, ms]) => `<span class="bf b-${k}">${BUFF_NAME[k] || k} ${Math.ceil(ms / 1000)}</span>`).join('') + (meStats[28] ? `<span class="bf b-shield">흡수 ${meStats[28]}</span>` : '');
+  const cst = meStats[26]; if (cst) { const end = performance.now() + cst[1]; if (!myCast || myCast.id !== cst[0] || Math.abs(myCast.end - end) > 150) myCast = { id: cst[0], end, total: cst[2] }; } else myCast = null;
   const bb = $('bossbar'); const tgb = ents.get(targetId); if (tgb && tgb.boss && tgb.st !== 4) { bb.hidden = false; tip('boss'); $('bossname').textContent = `${tgb.name} · Lv ${tgb.level}`; $('bosshp').style.width = (100 * tgb.hp / tgb.maxHp) + '%'; $('bosshpt').textContent = `${tgb.hp} / ${tgb.maxHp}`; } else bb.hidden = true;
   // darkness peaks at phase .5 and is lightest at 0, so phase 0 is noon and .5 is midnight
   const hr = Math.floor((dayPhase * 24 + 12) % 24); const ug = !!(me && inDungeon(me.x, me.y));
   if (me) setAmbience({ rain: weather === 1 && !ug ? 1 : 0, fountain: ug ? 0 : Math.max(0, 1 - Math.hypot(me.x - CX, me.y - CY - .5) / 10), night: ug ? 0 : Math.max(0, Math.sin((dayPhase - .25) * Math.PI * 2)), hour: hr, inTown: isSafe(me.x, me.y) }); $('clock').textContent = ug ? '' : `${String(hr).padStart(2, '0')}시 ${nightLabel(dayPhase)}`;
   const cnt = id => ui.state.inv.filter(x => x.id === id).reduce((a, x) => a + x.n, 0); $('n1').textContent = cnt('hpPotion'); $('n2').textContent = cnt('mpPotion'); $('n3').textContent = cnt('scroll');
-  const tg = ents.get(targetId); if (tg && tg.st !== 4) { $('target').hidden = false; $('tname').textContent = tg.name; $('tlv').textContent = `Lv ${tg.level}`; $('thpb').style.width = (100 * tg.hp / tg.maxHp) + '%'; $('thpt').textContent = `${tg.hp} / ${tg.maxHp}`; } else $('target').hidden = true;
+  const tg = ents.get(targetId); if (tg && tg.st !== 4) { $('target').hidden = false; $('tname').textContent = tg.name; $('tlv').textContent = `Lv ${tg.level}`; $('thpb').style.width = (100 * tg.hp / tg.maxHp) + '%'; $('thpt').textContent = `${tg.hp} / ${tg.maxHp}`;
+    $('tbuffs').innerHTML = STATUS_BITS.filter(([b]) => tg.sf & b).map(([, k]) => `<span class="bf b-${k}">${BUFF_NAME[k]}</span>`).join(''); } else $('target').hidden = true;
   const dead = !!(me && me.st === 4); if (dead && !deadAt) deadAt = performance.now(); else if (!dead) deadAt = 0; $('dead').hidden = !dead;
   if (dead) { const s = Math.max(0, Math.ceil(5 - (performance.now() - deadAt) / 1000)); $('deadt').textContent = s ? `${s}초 뒤 마을 광장에서 깨어납니다` : '깨어나는 중…'; }
   const rb = $('raidbar'); if (raidState) { rb.hidden = false; const DIRN = { S: '남', E: '동', N: '북', W: '서' }; rb.textContent = `⚔ ${DIRN[raidState[0]]}문 습격 · 남은 ${raidState[1]}마리 · ${Math.floor(raidState[2] / 60)}:${String(raidState[2] % 60).padStart(2, '0')}`; } else rb.hidden = true;
@@ -542,6 +573,8 @@ function frame(t) {
       ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,.85)'; ctx.strokeText(label, sx, y); ctx.fillStyle = e.boss ? '#ff9a4a' : e.elite ? '#f2d16a' : entColor(e); ctx.fillText(label, sx, y);
       if (e.guild) { ctx.font = "500 9.5px 'Noto Sans KR'"; ctx.strokeText(`〔${e.guild}〕`, sx, y - 12); ctx.fillStyle = '#d8c27a'; ctx.fillText(`〔${e.guild}〕`, sx, y - 12); }
       if (e.kind !== 4 && e.id !== myId && (e.hp < e.maxHp || e.id === targetId)) { ctx.fillStyle = 'rgba(0,0,0,.7)'; ctx.fillRect(sx - 18, y + 4, 36, 5); ctx.fillStyle = e.id === targetId ? '#ff5a4a' : '#c0392b'; ctx.fillRect(sx - 18, y + 4, 36 * clamp(e.hp / e.maxHp, 0, 1), 5); }
+      // cast bar under the health bar: gold = can be interrupted, orange = can't
+      const ci = e.castInfo; if (ci && e.id !== myId && t < ci.t0 + ci.ms) { const cp = (t - ci.t0) / ci.ms; ctx.fillStyle = 'rgba(0,0,0,.75)'; ctx.fillRect(sx - 22, y + 11, 44, 5); ctx.fillStyle = ci.intr ? '#f0c85a' : '#ff7a4a'; ctx.fillRect(sx - 22, y + 11, 44 * cp, 5); }
       if (e.say && t - e.sayT < 5000) { ctx.font = "500 12px 'Noto Sans KR'"; const txt = e.say.length > 28 ? e.say.slice(0, 27) + '…' : e.say; const w = ctx.measureText(txt).width + 16; ctx.fillStyle = 'rgba(250,246,236,.94)'; ctx.fillRect(sx - w / 2, y - 34, w, 22); ctx.beginPath(); ctx.moveTo(sx - 5, y - 12); ctx.lineTo(sx + 5, y - 12); ctx.lineTo(sx, y - 6); ctx.fill(); ctx.fillStyle = '#1a1612'; ctx.fillText(txt, sx, y - 19); }
     }
     for (let i = floats.length - 1; i >= 0; i--) { const f = floats[i]; const life = f.life || 900; const p = (t - f.t0) / life; if (p >= 1) { floats.splice(i, 1); continue; } if (p < 0) continue; const [sx0, sy] = toS(f.x, f.y); const sx = sx0 + (f.dx || 0) * Math.min(1, p * 4);
@@ -577,7 +610,7 @@ function frame(t) {
     // red edge flash when we take damage, plus a steady pulse while health is low
     const hp01 = meStats ? meStats[0] / Math.max(1, meStats[1]) : 1; const hurtA = Math.max(0, 1 - (t - hurtT) / 450) * hurtAmt * .5 + (hp01 < .35 && hp01 > 0 ? (.2 + .1 * Math.sin(t / 220)) * Math.min(1, .4 + (1 - hp01 / .35)) : 0);
     if (hurtA > .01) { const hg = ctx.createRadialGradient(VW / 2, VH / 2, Math.min(VW, VH) * .35, VW / 2, VH / 2, Math.max(VW, VH) * .7); hg.addColorStop(0, 'rgba(160,0,0,0)'); hg.addColorStop(1, `rgba(170,10,0,${hurtA})`); ctx.fillStyle = hg; ctx.fillRect(0, 0, VW, VH); }
-    if (frameN % 4 === 0) { hud(); drawMinimap(); }
+    if (frameN % 4 === 0) { hud(); drawMinimap(); } drawCastBars(t);
     const pe = pickEntity(lastMouse[0], lastMouse[1]); hoverId = pe ? pe.id : 0; canvas.style.cursor = attackArmed ? ARM_CURSOR : pe ? 'pointer' : 'crosshair';
   }
   requestAnimationFrame(frame);

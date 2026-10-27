@@ -22,7 +22,7 @@ function bot(token, i) {
     if (!b.id || b.dead) return;
     const [x, y] = b.pos(); const inTown = x > 64 && x < 112 && y > 64 && y < 112;
     const mon = [...b.ents.values()].filter(e => b.meta.get(e[0])?.[1] === 2 && e[4] !== 4).sort((p, q) => Math.hypot(p[1] - x, p[2] - y) - Math.hypot(q[1] - x, q[2] - y))[0];
-    if (!inTown && mon && Math.hypot(mon[1] - x, mon[2] - y) < 9) { b.send({ t: 'attack', id: mon[0] }); if (b.hp < 60 && Math.random() < .3) b.send({ t: 'heal' }); return; }
+    if (!inTown && mon && Math.hypot(mon[1] - x, mon[2] - y) < 9) { b.send({ t: 'attack', id: mon[0] }); if (b.hp < 60 && Math.random() < .3) b.send({ t: 'cast', id: 'first_aid' }); return; }
     const a = (i / N) * Math.PI * 2 + Math.random() * .6, r = 32 + Math.random() * 24;
     b.send({ t: 'move', x: Math.max(2, Math.min(173, 88 + Math.cos(a) * r)), y: Math.max(2, Math.min(173, 88 + Math.sin(a) * r)) });
     if (Math.random() < .05) b.send({ t: 'chat', msg: '부하 테스트 ' + i });

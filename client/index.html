@@ -16,9 +16,11 @@
     <div class="panel status" id="status">
       <div class="nm"><span id="pname"></span><small>Lv <b id="plv">1</b> <span id="pcls">평민</span></small></div>
       <div class="bar hp"><i id="hpb"></i><span id="hpt"></span></div>
-      <div class="bar mp"><i id="mpb"></i><span id="mpt"></span></div>
+      <div class="bar mp" id="mpbar"><i id="mpb"></i><span id="mpt"></span></div>
+      <div class="cuts" id="cuts" hidden></div>
       <div class="bar xp"><i id="xpb"></i><span id="xpt"></span></div>
       <div class="row"><span>금화 <b id="gold">0</b></span><span id="align"></span></div>
+      <div class="buffs" id="buffs"></div>
     </div>
     <div class="mid"><div class="panel zone" id="zone"><span class="z">Ravenmoor</span><span id="zonet"></span><span id="clock"></span><span id="online"></span></div><div class="panel raidbar" id="raidbar" hidden></div><div class="panel bossbar" id="bossbar" hidden><div class="bn" id="bossname"></div><div class="bar hp"><i id="bosshp"></i><span id="bosshpt"></span></div></div></div>
     <div class="panel mm"><canvas id="minimap" width="160" height="160"></canvas></div>
@@ -28,7 +30,8 @@
   <div id="notice" class="panel" hidden></div>
   <div id="tip" class="panel" hidden></div>
   <div id="armhint" class="panel" hidden><b>공격</b> 대상을 클릭하거나, 땅을 클릭하면 싸우며 이동합니다 · <kbd>A</kbd> 한 번 더: 가장 가까운 적 · 우클릭/<kbd>Esc</kbd> 취소</div>
-  <div class="panel target" id="target" hidden><div class="tn"><span id="tname"></span><em id="tlv"></em></div><div class="bar hp"><i id="thpb"></i><span id="thpt"></span></div></div>
+  <div class="panel target" id="target" hidden><div class="tn"><span id="tname"></span><em id="tlv"></em></div><div class="bar hp"><i id="thpb"></i><span id="thpt"></span></div><div class="tcast" id="tcast" hidden><i></i><span></span></div><div class="buffs" id="tbuffs"></div></div>
+  <div class="panel castbar" id="castbar" hidden><i></i><span></span></div>
   <div class="bottom">
     <div class="chat">
       <div class="chattabs" id="chattabs"><button class="on" data-f="">모두</button><button data-f="near">주변</button><button data-f="party">파티</button><button data-f="guild">길드</button><button data-f="whisper">귓속말</button><button data-f="sys">알림</button></div>
@@ -39,12 +42,10 @@
       <div class="keys"><span id="ctrlhint"></span> <kbd>Enter</kbd> 채팅 <kbd>L</kbd> 순위 <kbd>Esc</kbd> 멈춤/창 닫기 <button id="adminLink" class="link" hidden>운영 페이지</button><button id="logout" class="link">로그아웃</button></div>
       <div id="hotbar">
         <button class="hk atk" data-key="a"><kbd>A</kbd><small>공격</small></button>
-        <button class="hk" data-key="h"><kbd>H</kbd><small>치유</small><i class="cd" id="cdH"></i></button>
-        <button class="hk" data-key="s"><kbd>S</kbd><small id="skName">기술</small><i class="cd" id="cdS"></i></button>
-        <button class="hk" data-key="d"><kbd>D</kbd><small id="sk2Name">기술2</small><i class="cd" id="cdD"></i></button>
-        <button class="hk" data-key="1"><kbd>1</kbd><small>HP 물약</small><span class="cnt" id="n1">0</span></button>
-        <button class="hk" data-key="2"><kbd>2</kbd><small>MP 물약</small><span class="cnt" id="n2">0</span></button>
-        <button class="hk" data-key="3"><kbd>3</kbd><small>귀향</small><span class="cnt" id="n3">0</span></button>
+        <span id="skillbar"></span>
+        <button class="hk item" data-key="7"><kbd>7</kbd><small>HP 물약</small><span class="cnt" id="n1">0</span></button>
+        <button class="hk item" data-key="8"><kbd>8</kbd><small>MP 물약</small><span class="cnt" id="n2">0</span></button>
+        <button class="hk item" data-key="9"><kbd>9</kbd><small>귀향</small><span class="cnt" id="n3">0</span></button>
         <button class="hk" data-key="z"><kbd>Z</kbd><small>줍기</small></button>
         <button class="hk" data-key="i"><kbd>I</kbd><small>가방</small></button>
         <button class="hk" data-key="e"><kbd>E</kbd><small>장비</small></button>

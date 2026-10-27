@@ -57,11 +57,11 @@ export const MONSTERS = {
   skel_minion:  { name: '해골 졸개',   level: 2,  hp: 60,  atk: 13, def: 2,  exp: 20,  gold: [3, 9],    speed: 2.6, aggro: 5, ring: [28, 44], count: 40 },
   skel_rogue:   { name: '해골 도적',   level: 5,  hp: 120, atk: 24, def: 5,  exp: 42,  gold: [8, 16],   speed: 3.0, aggro: 6, ring: [38, 56], count: 30 },
   skel_warrior: { name: '해골 전사',   level: 9,  hp: 240, atk: 40, def: 11,  exp: 90,  gold: [15, 30],  speed: 2.5, aggro: 6, ring: [48, 68], count: 26 },
-  skel_mage:    { name: '해골 마법사', level: 13, hp: 300, atk: 62, def: 10,  exp: 150, gold: [28, 50],  speed: 2.4, aggro: 7, ring: [56, 78], count: 16, ranged: 4.5 },
+  skel_mage:    { name: '해골 마법사', level: 13, hp: 300, atk: 62, def: 10,  exp: 150, gold: [28, 50],  speed: 2.4, aggro: 7, ring: [56, 78], count: 16, ranged: 4.5, skills: [{ k: 'bolt', name: '어둠의 화살', cd: 8000, wind: 1800, mul: 2.0 }] },
   // human outlaws: tinted variants of the adventurer sprites (see client VARIANTS); they fill the gaps between skeleton tiers and above
   bandit:       { name: '산적',        level: 4,  hp: 100, atk: 20, def: 4,  exp: 36,  gold: [10, 20],  speed: 3.2, aggro: 6, ring: [30, 48], count: 18, sprite: 'bandit' },
   deserter:     { name: '탈영 기사',   level: 11, hp: 320, atk: 46, def: 16, exp: 125, gold: [25, 45],  speed: 2.7, aggro: 6, ring: [50, 70], count: 14, sprite: 'deserter' },
-  cultist:      { name: '이단 사제',   level: 15, hp: 340, atk: 70, def: 12, exp: 190, gold: [35, 60],  speed: 2.5, aggro: 7, ring: [60, 84], count: 10, sprite: 'cultist', ranged: 4.5 },
+  cultist:      { name: '이단 사제',   level: 15, hp: 340, atk: 70, def: 12, exp: 190, gold: [35, 60],  speed: 2.5, aggro: 7, ring: [60, 84], count: 10, sprite: 'cultist', ranged: 4.5, skills: [{ k: 'bolt', name: '어둠의 화살', cd: 8000, wind: 1800, mul: 2.0 }] },
   brute:        { name: '황야 광전사', level: 20, hp: 650, atk: 78, def: 20, exp: 320, gold: [50, 90],  speed: 3.0, aggro: 7, ring: [68, 86], count: 8,  sprite: 'brute' },
   // bosses: fixed lairs, long respawn, telegraphed skills (see server bossAI)
   boss_fang:    { name: '회색 송곳니',   level: 7,  hp: 650,  atk: 20, def: 6,  exp: 420,  gold: [80, 140],  speed: 3.6, aggro: 8, fixed: [120.5, 136.5], count: 1, boss: true, sprite: 'skel_rogue', scale: 1.45, respawn: 180000,
@@ -71,14 +71,14 @@ export const MONSTERS = {
   boss_chief:   { name: '족장 크루쉬',   level: 18, hp: 2600, atk: 52, def: 18, exp: 2400, gold: [300, 520], speed: 3.0, aggro: 8, fixed: [39.5, 40.5], count: 1, boss: true, sprite: 'barbarian', scale: 1.6, respawn: 300000,
     skills: [{ k: 'charge', cd: 8000, mul: 2.0 }, { k: 'roar', cd: 14000, r: 3 }] },
   boss_lich:    { name: '리치 왕',       level: 25, hp: 4200, atk: 70, def: 22, exp: 5200, gold: [500, 900], speed: 2.3, aggro: 9, fixed: [24.5, 150.5], count: 1, boss: true, sprite: 'skel_mage', scale: 1.7, ranged: 5, respawn: 420000,
-    skills: [{ k: 'slam', cd: 10000, mul: 2.8, r: 2.6, wind: 1100 }, { k: 'summon', cd: 20000 }, { k: 'regen', cd: 25000 }] },
+    skills: [{ k: 'slam', cd: 10000, mul: 2.8, r: 2.6, wind: 1100 }, { k: 'bolt', name: '망자의 저주', cd: 14000, wind: 2500, mul: 3.2 }, { k: 'summon', cd: 20000 }, { k: 'regen', cd: 25000 }] },
   // catacomb dwellers: placed by depth band (crypt: [y from, y to]) instead of a ring around town; tinted skeleton sheets (client VARIANTS)
   crypt_ghoul:  { name: '묘지 구울',     level: 14, hp: 380, atk: 60, def: 12, exp: 170, gold: [30, 55],  speed: 2.9, aggro: 6, crypt: [16, 58],   count: 16, sprite: 'crypt_ghoul' },
   crypt_guard:  { name: '납골당 파수병', level: 18, hp: 560, atk: 72, def: 18, exp: 260, gold: [40, 70],  speed: 2.5, aggro: 6, crypt: [60, 114],  count: 14, sprite: 'crypt_guard' },
-  crypt_priest: { name: '망자의 사제',   level: 21, hp: 520, atk: 84, def: 14, exp: 320, gold: [50, 85],  speed: 2.4, aggro: 7, crypt: [70, 146],  count: 10, sprite: 'crypt_priest', ranged: 4.5 },
+  crypt_priest: { name: '망자의 사제',   level: 21, hp: 520, atk: 84, def: 14, exp: 320, gold: [50, 85],  speed: 2.4, aggro: 7, crypt: [70, 146],  count: 10, sprite: 'crypt_priest', ranged: 4.5, skills: [{ k: 'bolt', name: '망자의 화살', cd: 7000, wind: 1800, mul: 2.1 }] },
   crypt_knight: { name: '심연의 기사',   level: 24, hp: 900, atk: 92, def: 24, exp: 450, gold: [70, 120], speed: 2.6, aggro: 7, crypt: [116, 146], count: 12, sprite: 'crypt_knight' },
   boss_crypt:   { name: '묘지기 모르바스', level: 30, hp: 7000, atk: 105, def: 28, exp: 9000, gold: [900, 1500], speed: 2.6, aggro: 9, fixed: [225.5, 156.5], count: 1, boss: true, sprite: 'crypt_lord', scale: 1.9, respawn: 600000,
-    skills: [{ k: 'slam', cd: 9000, mul: 2.6, r: 2.4, wind: 1000 }, { k: 'summon', cd: 22000, mob: 'crypt_ghoul' }, { k: 'charge', cd: 11000, mul: 2.0 }, { k: 'regen', cd: 30000 }] },
+    skills: [{ k: 'slam', cd: 9000, mul: 2.6, r: 2.4, wind: 1000 }, { k: 'bolt', name: '영혼 수확', cd: 15000, wind: 2500, mul: 3.5 }, { k: 'summon', cd: 22000, mob: 'crypt_ghoul' }, { k: 'charge', cd: 11000, mul: 2.0 }, { k: 'regen', cd: 30000 }] },
 };
 
 export const LOOKS = { knight: '기사', barbarian: '야만전사', rogue: '도적', mage: '마법사' };

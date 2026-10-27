@@ -84,7 +84,7 @@ check(A.me[4] === 10, 'reloaded at level 10');
 A.send({ t: 'talk', npc: 'knights' }); await sleep(7000); const hp10 = A.me[1];
 A.send({ t: 'job', npc: 'knights' }); await sleep(300);
 check(A.me[11] === 'knight' && A.me[1] > hp10, `class change to knight (maxHp ${hp10} -> ${A.me[1]})`);
-A.send({ t: 'skill' }); await sleep(200); check(A.said('성내에서는'), 'skills are blocked inside town');
+A.send({ t: 'cast', id: 'bash' }); await sleep(200); check(A.said('성내에서는'), 'combat skills are blocked inside town');
 
 
 // quests: accept at the guard, kills count, turn in
@@ -118,7 +118,7 @@ check(!!boss, 'boss 회색 송곳니 is visible with boss flag and scale ' + (bo
 if (boss) { A.send({ t: 'attack', id: boss[0] }); for (let k = 0; k < 30; k++) { await sleep(500); if (A.me[0] < A.me[1] * .4) { hpP = A.inv.inv.findIndex(x => x.id === 'hpPotion'); if (hpP >= 0) A.send({ t: 'use', i: hpP, id: 'hpPotion' }); } if (A.evs.some(e => e.k === 'fx' && (e.fx === 'roar'))) break; } }
 check(A.evs.some(e => e.k === 'fx' && e.fx === 'roar'), 'boss used its howl (summons)');
 check([...A.meta.values()].filter(m => m[3] === 'skel_minion').length > 0, 'summoned minions appeared');
-A.send({ t: 'skill2' }); await sleep(300); check(A.evs.some(e => e.k === 'fx' && e.fx === 'heal' && e.id === A.id) || A.said('마나') || A.said('대상'), 'second skill (smite) fires or reports a reason');
+A.send({ t: 'cast', id: 'challenge' }); A.send({ t: 'cast', id: 'smite' }); await sleep(300); check(A.evs.some(e => e.k === 'fx' && e.fx === 'heal' && e.id === A.id) || A.said('부족') || A.said('대상'), 'advanced skill (smite) fires or reports a reason');
 
 // social: whisper, party exp share, party members cannot PK each other, trade
 B.ws.close(); await sleep(300); B = bot(rb.token); await B.ready; await sleep(700);
@@ -205,6 +205,36 @@ A.send({ t: 'chat', msg: '/습격' }); await sleep(600); check(A.said('이미 �
   const sk = [...A.ents.values()].find(e => A.meta.get(e[0])?.[1] === 2 && A.meta.get(e[0])?.[3] === 'skel_minion' && Math.hypot(e[1] - p0[0], e[2] - p0[1]) < 3.5);
   A.send({ t: 'amove', x: p0[0] + 6, y: p0[1] }); let pend = null; for (let i = 0; i < 20; i++) { await sleep(500); pend = A.pos(); if (sk && A.evs.some(e => e.k === 'die' && e.id === sk[0]) && Math.hypot(pend[0] - p0[0] - 6, pend[1] - p0[1]) < 1.5) break; }
   check(sk && A.evs.some(e => e.k === 'die' && e.id === sk[0]) && Math.hypot(pend[0] - p0[0] - 6, pend[1] - p0[1]) < 1.5, `attack-move kills the monster on the way and arrives (${pend && pend.map(v => v.toFixed(1))})`);
+}
+// combat: class skill bars and resources, cast times, cooldowns, taunt and threat, interrupts
+{
+  const RL = await import('../shared/rules.js'); const waitEv = async (f, ms = 3000) => { for (let i = 0; i < ms / 100; i++) { if (A.evs.some(f)) return true; await sleep(100); } return false; };
+  check(RL.skillsFor('paladin').length === 6 && RL.skillsFor('cleric').length === 4 && RL.resourceOf('assassin') === 'breath' && RL.resourceOf('paladin') === 'grit' && A.me[22] === 'grit', `each class has its own bar and resource (A uses ${A.me[22]})`);
+  A.send({ t: 'cast', id: 'fireball' }); await sleep(300); check(!A.evs.some(e => e.k === 'cast' && e.id === A.id && e.s === 'fireball'), 'the server refuses skills from another class');
+  // cast time: 응급 치료 is a 1.5 s cast; walking breaks it, standing still lands it and starts its cooldown
+  A.evs.length = 0; A.send({ t: 'stop' }); await sleep(200); A.send({ t: 'cast', id: 'first_aid' }); const started = await waitEv(e => e.k === 'cast' && e.id === A.id && e.s === 'first_aid', 1000);
+  const pp = A.pos(); A.send({ t: 'move', x: pp[0], y: pp[1] + 2 }); const cut = await waitEv(e => e.k === 'castend' && e.id === A.id, 1000); await sleep(1700);
+  check(started && cut && !A.evs.some(e => e.k === 'fx' && e.fx === 'heal' && e.id === A.id), 'a cast shows a bar and moving cancels it');
+  await sleep(1200); A.evs.length = 0; A.send({ t: 'cast', id: 'first_aid' }); await sleep(1900);
+  check(A.evs.some(e => e.k === 'fx' && e.fx === 'heal' && e.id === A.id) && A.me[25] && A.me[25].first_aid > 0, `standing still the cast lands and the cooldown starts (${A.me[25] && A.me[25].first_aid} ms left)`);
+  A.send({ t: 'cast', id: 'first_aid' }); await sleep(300); check(A.said('아직 준비되지 않았습니다'), 'skills on cooldown are refused');
+  // interrupt: a skeleton mage starts 어둠의 화살; 도전의 함성 (+20 grit) then 방패 강타 cuts it (its cast bar ends with cut)
+  A.send({ t: 'chat', msg: '/레벨 30' }); await sleep(700); A.evs.length = 0; A.send({ t: 'chat', msg: '/몬스터 skel_mage' }); await sleep(500);
+  const fresh = sprite => [...A.ents.values()].filter(e => A.meta.get(e[0])?.[3] === sprite && e[4] !== 4 && Math.hypot(e[1] - A.pos()[0], e[2] - A.pos()[1]) < 4).sort((x, y) => y[0] - x[0])[0];   // the just-summoned one: alive, highest id
+  const mg = fresh('skel_mage');
+  if (mg) { const pm = A.ents.get(mg[0]); A.send({ t: 'move', x: pm[1] - 1, y: pm[2] }); }
+  const casting = mg && await waitEv(e => e.k === 'cast' && e.id === mg[0], 5000); await sleep(150);
+  A.send({ t: 'cast', id: 'challenge' }); A.send({ t: 'cast', id: 'bash', tid: mg?.[0] });
+  check(casting && await waitEv(e => e.k === 'castend' && e.id === mg[0] && e.cut === 1, 1500), `방패 강타 interrupts a monster's spell (${mg ? 'mage found' : 'no mage'}${casting ? ', cast seen' : ''})`);
+  A.send({ t: 'attack', id: mg?.[0] }); for (let i = 0; i < 30 && !A.evs.some(e => e.k === 'die' && e.id === mg?.[0]); i++) await sleep(300);
+  // taunt: once 도전의 함성 is ready again it forces a fresh monster onto you and fills grit; then it hits you
+  for (let i = 0; i < 140 && A.me[25] && A.me[25].challenge; i++) await sleep(100);
+  A.send({ t: 'stop' }); await sleep(300); A.send({ t: 'chat', msg: '/몬스터 skel_warrior' }); await sleep(600);
+  const war = fresh('skel_warrior');
+  const g0 = A.me[2]; A.evs.length = 0; A.send({ t: 'cast', id: 'challenge' }); await sleep(500);
+  check(war && (A.ents.get(war[0])?.[6] & 64) && A.me[2] >= g0 + 15, `challenge taunts the monster (status ${war && A.ents.get(war[0])?.[6]}) and adds grit (${g0} -> ${A.me[2]})`);
+  check(await waitEv(e => e.k === 'dmg' && e.a === war?.[0] && e.b === A.id, 4000), 'the taunted monster attacks the taunter');
+  A.send({ t: 'attack', id: war?.[0] }); for (let i = 0; i < 30 && !A.evs.some(e => e.k === 'die' && e.id === war?.[0]); i++) await sleep(300);
 }
 const health = await (await fetch(`http://127.0.0.1:${PORT}/health`)).json();
 check(health.players === 2 && health.monsters > 90, `health ${JSON.stringify(health)}`);
