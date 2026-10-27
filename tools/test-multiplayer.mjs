@@ -175,6 +175,32 @@ const monsBefore = (await (await fetch(`http://127.0.0.1:${PORT}/health`)).json(
 A.send({ t: 'chat', msg: '/습격' }); await sleep(600); const monsAfter = (await (await fetch(`http://127.0.0.1:${PORT}/health`)).json()).monsters;
 check(B.chat.some(t => t.includes('해골 무리가')) && monsAfter >= monsBefore + 8, `gate raid spawns a warband and notifies everyone (${monsBefore} -> ${monsAfter})`);
 A.send({ t: 'chat', msg: '/습격' }); await sleep(600); check(A.said('이미 습격'), 'only one raid at a time');
+// catacombs: the entrance portal takes you underground, the two areas never share snapshots, depth means danger, exits lead back up
+{
+  const WD = await import('../shared/world.js'); const WW = WD.buildWorld(); const typeOf = (b, id) => b.meta.get(id)?.[3];   // meta[3] is the sprite
+  const crypt = t => /^crypt_/.test(t || ''); const monsSeen = b => [...b.ents.keys()].filter(id => b.meta.get(id)?.[1] === 2).map(id => typeOf(b, id));
+  A.send({ t: 'chat', msg: '/레벨 40' }); await sleep(650); A.send({ t: 'chat', msg: '/텔레포트 52.5 139.5' }); await sleep(700);   // chat is limited to one line per 500ms
+  A.send({ t: 'move', x: 52.5, y: 136.5 }); await sleep(2500);
+  let pa = A.pos(); check(pa && pa[0] > WD.DUNGEON.x0 && A.said('지하 묘지로 내려갑니다'), `stepping on the crypt entrance takes you underground (${pa && pa.map(v => v.toFixed(1))})`);
+  await sleep(1200);
+  const aSees = monsSeen(A), bSees = monsSeen(B);
+  check(aSees.length && aSees.every(crypt) && !bSees.some(crypt), `underground and overworld snapshots never mix (A sees ${[...new Set(aSees)].join(',')})`);
+  check(WD.PORTALS.every(p => WW.monsterBlock[p.y * WD.MAP + p.x] === 1 && !WW.block[p.y * WD.MAP + p.x]), 'portal tiles are walkable for players but closed to monsters');
+  const lv = ['crypt_ghoul', 'crypt_guard', 'crypt_knight', 'boss_crypt'].map(t => WD.MONSTERS[t].level); const band = ['crypt_ghoul', 'crypt_guard', 'crypt_knight'].map(t => WD.MONSTERS[t].crypt[0]);
+  check(lv.every((v, i) => !i || v > lv[i - 1]) && band.every((v, i) => !i || v > band[i - 1]) && WD.cryptFloor(WD.MONSTERS.boss_crypt.fixed[1]) === 4, `deeper bands hold stronger dwellers (Lv ${lv.join(' < ')}), the lord in the last chamber`);
+  // fight one: an admin-summoned ghoul dies, pays EXP and drops gold
+  A.evs.length = 0; A.send({ t: 'chat', msg: '/몬스터 crypt_ghoul' }); await sleep(500);
+  const g = [...A.ents.values()].find(e => typeOf(A, e[0]) === 'crypt_ghoul' && Math.hypot(e[1] - A.pos()[0], e[2] - A.pos()[1]) < 4);
+  if (g) A.send({ t: 'attack', id: g[0] }); for (let i = 0; i < 16 && g && !A.evs.some(e => e.k === 'die' && e.id === g[0]); i++) await sleep(500);
+  check(g && A.evs.some(e => e.k === 'die' && e.id === g[0]) && A.evs.some(e => e.k === 'xp' && e.v >= WD.MONSTERS.crypt_ghoul.exp), 'a ghoul can be fought and pays crypt-tier EXP');
+  A.send({ t: 'move', x: 210.5, y: 9.5 }); await sleep(3500); pa = A.pos();
+  check(pa && pa[0] < WD.OVER && Math.hypot(pa[0] - 52.5, pa[1] - 138.5) < 3 && A.said('지상으로 올라왔습니다'), `the stair by the entrance hall leads back to the surface (${pa && pa.map(v => v.toFixed(1))})`);
+  // the lord's chamber: the boss is home, and its back passage is a second way out
+  A.send({ t: 'chat', msg: '/레벨 60' }); await sleep(650); A.send({ t: 'chat', msg: '/텔레포트 230.5 160.5' }); await sleep(1500);
+  check([...A.ents.keys()].some(id => typeOf(A, id) === 'crypt_lord' && A.meta.get(id)[9] === 1), 'the catacomb lord waits in the deepest chamber');
+  A.send({ t: 'move', x: 225.5, y: 163.5 }); await sleep(2500); pa = A.pos();
+  check(pa && pa[0] < WD.OVER && A.said('군주의 방 뒤편 통로'), `the chamber's back passage returns you to the surface (${pa && pa.map(v => v.toFixed(1))})`);
+}
 const health = await (await fetch(`http://127.0.0.1:${PORT}/health`)).json();
 check(health.players === 2 && health.monsters > 90, `health ${JSON.stringify(health)}`);
 check((await fetch(`http://127.0.0.1:${PORT}/`)).ok, 'client page is served');

@@ -1,6 +1,6 @@
 // Authoritative game world. The server decides movement, combat, items, shops and rewards;
 // clients only send intentions (move / attack / use item / buy ...).
-import { MAP, TOWN, SPAWN, CX, CY, GATES, VIEW_RADIUS, TICK_HZ, SNAP_HZ, MONSTERS, LOOKS, buildWorld, isSafe, findPath, expNeed, dirOf, rng } from '../shared/world.js';
+import { MAP, OVER, TOWN, SPAWN, CX, CY, GATES, VIEW_RADIUS, TICK_HZ, SNAP_HZ, MONSTERS, LOOKS, DUNGEON, buildWorld, isSafe, portalAt, findPath, expNeed, dirOf, rng } from '../shared/world.js';
 import { TITLES, TITLE_BY, titleName, ITEMS, SLOTS, INV_SIZE, DROPS, NPCS, CLASSES, CLASS_LEVEL, ADV, ADV_LEVEL, ADV_OF, classInfo, statsFor, itemStats, ENH_RATE, enhCost, sellPrice, itemName, BANK_SIZE, QUESTS } from '../shared/rules.js';
 import { accountForToken, loadCharacter, saveCharacter } from './db.js';
 import { createSocial } from './social.js';
@@ -64,10 +64,15 @@ function spawnMonster(type, sx, sy, elite) {
 }
 function freeTileIn(ring, r) {
   const c = (TOWN.x0 + TOWN.x1) / 2 + .5;
-  for (let i = 0; i < 4000; i++) { const x = 3 + Math.floor(r() * (MAP - 6)), y = 3 + Math.floor(r() * (MAP - 6)); const d = Math.max(Math.abs(x + .5 - c), Math.abs(y + .5 - c)); if (d < ring[0] || d > ring[1] || W.monsterBlock[y * MAP + x]) continue; return [x + .5, y + .5]; }
+  for (let i = 0; i < 4000; i++) { const x = 3 + Math.floor(r() * (OVER - 6)), y = 3 + Math.floor(r() * (OVER - 6)); const d = Math.max(Math.abs(x + .5 - c), Math.abs(y + .5 - c)); if (d < ring[0] || d > ring[1] || W.monsterBlock[y * MAP + x]) continue; return [x + .5, y + .5]; }
   return [20.5, 20.5];
 }
-{ const r = rng(7); for (const [type, m] of Object.entries(MONSTERS)) for (let i = 0; i < m.count; i++) { const [x, y] = m.fixed ? m.fixed : freeTileIn(m.ring, r); spawnMonster(type, x, y, !m.boss && i % 12 === 11); } }
+// catacomb dwellers live in a depth band (rows y0..y1 of the dungeon strip), on open floor
+function freeCryptTile([y0, y1], r) {
+  for (let i = 0; i < 4000; i++) { const x = DUNGEON.x0 + Math.floor(r() * (DUNGEON.x1 - DUNGEON.x0 + 1)), y = y0 + Math.floor(r() * (y1 - y0 + 1)); if (W.monsterBlock[y * MAP + x]) continue; return [x + .5, y + .5]; }
+  return [214.5, 30.5];
+}
+{ const r = rng(7); for (const [type, m] of Object.entries(MONSTERS)) for (let i = 0; i < m.count; i++) { const [x, y] = m.fixed ? m.fixed : m.crypt ? freeCryptTile(m.crypt, r) : freeTileIn(m.ring, r); spawnMonster(type, x, y, !m.boss && i % 12 === 11); } }
 const npcById = {};
 for (const n of NPCS) { const e = { ...n, npcId: n.id, id: nextId++, kind: 'npc', level: 0, hp: 1, maxHp: 1, dir: n.guard ? 0 : 1, metaVer: 1, speed: 1.6, path: null, wanderT: 0, fx: {} }; ents.set(e.id, e); npcById[n.id] = e; }
 function villagerAI(e, dt) { if (!e.path) { e.moving = false; if (now() > e.wanderT) { e.wanderT = now() + 3000 + R() * 7000; const a = e.area; const tx = a[0] + Math.floor(R() * a[2]), ty = a[1] + Math.floor(R() * a[3]); if (!W.block[ty * MAP + tx]) setPath(e, tx + .5, ty + .5); } } step(e, dt); }
@@ -317,7 +322,7 @@ function bossAI(e, t, dt) {
     if (s.k === 'charge' && d >= 2.5 && d <= 8) { e.sk[s.k] = now() + s.cd; e.cast = { k: 'charge', until: now() + 500, tx: t.x, ty: t.y, mul: s.mul }; e.path = null; face(e, t); broadcastNear(e.x, e.y, { t: 'ev', k: 'fx', fx: 'tele_charge', id: e.id, x: t.x, y: t.y, ms: 500 }); return true; }
     if (s.k === 'roar' && d <= s.r) { e.sk[s.k] = now() + s.cd; broadcastNear(e.x, e.y, { t: 'ev', k: 'fx', fx: 'roar', id: e.id, x: e.x, y: e.y }); for (const o of near(e.x, e.y, s.r, x => canFight(e, x))) if (dist(e, o) <= s.r) { o.stunT = now() + 1500; o.path = null; broadcastNear(o.x, o.y, { t: 'ev', k: 'fx', fx: 'stun', id: o.id }); } return false; }
     if (s.k === 'howl' && d <= 7) { e.sk[s.k] = now() + s.cd; e.fx.rage = now() + 8000; broadcastNear(e.x, e.y, { t: 'ev', k: 'fx', fx: 'roar', id: e.id, x: e.x, y: e.y }); for (let i = 0; i < 2; i++) { const w = spawnMonster('skel_minion', e.x + (R() - .5) * 2, e.y + (R() - .5) * 2); w.temp = true; w.target = t; } return false; }
-    if (s.k === 'summon' && d <= 9) { e.sk[s.k] = now() + s.cd; broadcastNear(e.x, e.y, { t: 'ev', k: 'fx', fx: 'summon', id: e.id, x: e.x, y: e.y }); for (let i = 0; i < 3; i++) { const w = spawnMonster('skel_warrior', e.x + (R() - .5) * 3, e.y + (R() - .5) * 3); w.temp = true; w.target = t; } return false; }
+    if (s.k === 'summon' && d <= 9) { e.sk[s.k] = now() + s.cd; broadcastNear(e.x, e.y, { t: 'ev', k: 'fx', fx: 'summon', id: e.id, x: e.x, y: e.y }); for (let i = 0; i < 3; i++) { let sx = e.x + (R() - .5) * 3, sy = e.y + (R() - .5) * 3; if (W.monsterBlock[Math.floor(sy) * MAP + Math.floor(sx)]) { sx = e.x; sy = e.y; } const w = spawnMonster(s.mob || 'skel_warrior', sx, sy); w.temp = true; w.target = t; } return false; }
     if (s.k === 'lunge' && d >= 1.8 && d <= 4.5) { e.sk[s.k] = now() + s.cd; const dx = t.x - e.x, dy = t.y - e.y; const nx = t.x - dx / d, ny = t.y - dy / d; if (!W.monsterBlock[Math.floor(ny) * MAP + Math.floor(nx)]) { e.x = nx; e.y = ny; } face(e, t); broadcastNear(e.x, e.y, { t: 'ev', k: 'atk', a: e.id, b: t.id, r: 0 }); const [dm] = rollDamage(e, t, s.mul); damage(t, dm, e, true); return true; }
     if (s.k === 'regen' && e.hp < e.maxHp * .6) { e.sk[s.k] = now() + s.cd; const h = Math.round(e.maxHp * .15); e.hp = Math.min(e.maxHp, e.hp + h); broadcastNear(e.x, e.y, { t: 'ev', k: 'fx', fx: 'heal', id: e.id, v: h }); return false; }
   }
@@ -353,6 +358,13 @@ function playerTick(p, dt) {
   if (p.npcOpen) { const n = npcById[p.npcOpen]; if (!n || dist(p, n) > 3.5) { p.npcOpen = null; sendTo(p, { t: 'npcclose' }); } }
   if (p.engaged && p.target) { const t = ents.get(p.target.id); if (!t || t.dead || !canFight(p, t)) { p.engaged = false; p.target = null; } else pursue(p, t, dt); }
   else step(p, dt);
+  // portals (crypt entrance / exits): stepping onto one moves you; a short cooldown stops ping-ponging
+  const pt = portalAt(p.x, p.y);
+  if (pt && now() > (p.portalT || 0)) {
+    p.portalT = now() + 1500; p.path = null; p.engaged = false; p.target = null; p.pick = 0; p.pickQ = null; p.talk = null;
+    broadcastNear(p.x, p.y, { t: 'ev', k: 'fx', fx: 'tele', id: p.id }); p.x = pt.tx; p.y = pt.ty; broadcastNear(p.x, p.y, { t: 'ev', k: 'fx', fx: 'tele', id: p.id });
+    sys(p, pt.msg); if (pt.x < OVER && p.level < 14) sys(p, '⚠ 지하 묘지의 망자들은 14레벨 이상에게도 버겁습니다. 파티를 꾸려 오는 것이 좋습니다.');
+  }
   const safe = isSafe(p.x, p.y);
   p.hp = Math.min(p.maxHp, p.hp + (safe ? 5 : .6) * dt); p.mp = Math.min(p.maxMp, p.mp + (safe ? 3 : 1) * dt);
   if (p.flagT && p.flagT < now()) { p.flagT = 0; bump(p); }

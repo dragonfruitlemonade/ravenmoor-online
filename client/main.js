@@ -1,5 +1,5 @@
 // Ravenmoor Online client: renders the shared map and baked 3D sprites, sends intentions to the server.
-import { MAP, TILE_W as TW, TILE_H as TH, G, TOWN, CX, CY, GATES, BUILDINGS, LOOKS, buildWorld, isSafe, noise } from '/shared/world.js';
+import { MAP, OVER, TILE_W as TW, TILE_H as TH, G, TOWN, CX, CY, GATES, BUILDINGS, LOOKS, DUNGEON, PORTALS, CRYPT_FLOOR_NAME, buildWorld, isSafe, inDungeon, cryptFloor, noise } from '/shared/world.js';
 import { ITEMS, CLASSES, classInfo } from '/shared/rules.js';
 import { createUI, iconSrc } from '/client/ui.js';
 import { initAudio, toggleMute, isMuted, sfx, sfxAt, setAmbience } from '/client/audio.js';
@@ -27,8 +27,9 @@ for (const k of ['knight', 'barbarian', 'rogue', 'mage']) { img(MF.characters[k]
 
 // ───────────────────────── ground textures
 const GCOL = { [G.GRASS]: [[96, 112, 52], [126, 138, 66]], [G.DIRT]: [[132, 106, 70], [158, 134, 92]], [G.ROAD]: [[146, 124, 86], [170, 148, 104]], [G.COBBLE]: [[120, 116, 108], [150, 144, 132]],
-  [G.WATER]: [[40, 84, 120], [58, 106, 144]], [G.SAND]: [[176, 158, 116], [196, 178, 134]], [G.DARK]: [[62, 80, 44], [86, 100, 54]], [G.ASH]: [[118, 84, 60], [146, 108, 74]], [G.BRIDGE]: [[110, 82, 52], [140, 106, 70]] };
-const ORDER = [G.DARK, G.DIRT, G.ASH, G.SAND, G.ROAD, G.WATER, G.COBBLE, G.BRIDGE];
+  [G.WATER]: [[40, 84, 120], [58, 106, 144]], [G.SAND]: [[176, 158, 116], [196, 178, 134]], [G.DARK]: [[62, 80, 44], [86, 100, 54]], [G.ASH]: [[118, 84, 60], [146, 108, 74]], [G.BRIDGE]: [[110, 82, 52], [140, 106, 70]],
+  [G.CRYPT]: [[46, 46, 52], [86, 84, 92]], [G.VOID]: [[8, 7, 7], [14, 12, 11]] };
+const ORDER = [G.DARK, G.DIRT, G.ASH, G.SAND, G.ROAD, G.WATER, G.COBBLE, G.BRIDGE, G.CRYPT];
 // periodic value noise so textures tile seamlessly
 function ph(x, y, P) { x = ((x % P) + P) % P; y = ((y % P) + P) % P; let h = (x * 374761393 + y * 668265263) | 0; h = (h ^ (h >>> 13)) * 1274126177 | 0; return ((h ^ (h >>> 16)) >>> 0) / 4294967296; }
 function pnoise(x, y, P) { const xi = Math.floor(x), yi = Math.floor(y), xf = x - xi, yf = y - yi; const u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf); const a = ph(xi, yi, P), b = ph(xi + 1, yi, P), c = ph(xi, yi + 1, P), d = ph(xi + 1, yi + 1, P); return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v; }
@@ -40,7 +41,11 @@ function makeTexture(type) {
     const n1 = pnoise(x / S * 6, y / S * 6, 6) * .65 + pnoise(x / S * 12 + 3, y / S * 12 + 7, 12) * .35;
     const n2 = pnoise(x / S * 24 + 5, y / S * 24 + 1, 24) * .6 + pnoise(x / S * 48, y / S * 48, 48) * .4;
     let t = n1 * .55 + n2 * .45;
-    if (type === G.COBBLE || type === G.BRIDGE) {
+    if (type === G.CRYPT) {
+      // big worn flagstones with dark seams and grime
+      const sx = x / 32, sy = y / 22; const ix = Math.floor(sx + (Math.floor(sy) % 2) * .5), iy = Math.floor(sy); const fx = sx + (Math.floor(sy) % 2) * .5 - ix, fy = sy - iy;
+      const edge = Math.min(fx, 1 - fx, fy * 1.4, (1 - fy) * 1.4); t = edge < .05 ? .02 : .25 + ((ix * 5 + iy * 11) % 7) / 18 + n2 * .25 - (n1 > .62 ? .15 : 0);
+    } else if (type === G.COBBLE || type === G.BRIDGE) {
       const cs = type === G.COBBLE ? 18 : 12; const sx = x / cs, sy = y / cs * (type === G.COBBLE ? 1 : 3);
       const ix = Math.floor(sx + (Math.floor(sy) % 2) * .5), iy = Math.floor(sy); const fx = sx + (Math.floor(sy) % 2) * .5 - ix, fy = sy - iy;
       const edge = Math.min(fx, 1 - fx, fy, 1 - fy); t = edge < .09 ? .05 : .35 + ((ix * 7 + iy * 13) % 9) / 14 + n2 * .2;
@@ -75,11 +80,11 @@ function buildChunk(cx, cy) {
   const g = c.getContext('2d'); g.scale(DPR, DPR); g.translate(-left, -top);
   // clip to this chunk's diamond so neighbouring chunks don't double-draw
   g.save(); g.beginPath(); const o = .04; const [ax, ay] = toS(x0 - o, y0 - o), [bx, by] = toS(x0 + CH + o, y0 - o), [ex, ey] = toS(x0 + CH + o, y0 + CH + o), [dx, dy] = toS(x0 - o, y0 + CH + o); g.moveTo(ax, ay); g.lineTo(bx, by); g.lineTo(ex, ey); g.lineTo(dx, dy); g.closePath(); g.clip();
-  g.fillStyle = g.createPattern(TEX[G.GRASS], 'repeat'); g.fillRect(left, top, w, h);
+  g.fillStyle = g.createPattern(TEX[x0 >= OVER || y0 >= OVER ? G.VOID : G.GRASS], 'repeat'); g.fillRect(left, top, w, h);
   const layer = document.createElement('canvas'); layer.width = c.width; layer.height = c.height; const lg = layer.getContext('2d');
   for (const type of ORDER) {
     let any = false; lg.setTransform(1, 0, 0, 1, 0, 0); lg.clearRect(0, 0, layer.width, layer.height); lg.setTransform(DPR, 0, 0, DPR, -left * DPR, -top * DPR);
-    const hard = type === G.COBBLE || type === G.BRIDGE || type === G.WATER;
+    const hard = type === G.COBBLE || type === G.BRIDGE || type === G.WATER || type === G.CRYPT;
     for (let y = y0 - 1; y <= y0 + CH; y++) for (let x = x0 - 1; x <= x0 + CH; x++) {
       if (x < 0 || y < 0 || x >= MAP || y >= MAP) continue; if (W.ground[y * MAP + x] !== type) continue; any = true;
       const m = hard ? MASK_HARD[(x + y) & 1] : MASK_SOFT[(x * 3 + y * 7) & 3]; const [sx, sy] = toS(x + .5, y + .5); lg.drawImage(m, sx - m.width / 2, sy - m.height / 2);
@@ -95,21 +100,68 @@ function getChunk(cx, cy) { const k = cy * 64 + cx; let c = chunks.get(k); if (c
 
 // ───────────────────────── static objects
 const BMAP = Object.fromEntries(BUILDINGS.map(b => [b.id, b]));
+// crypt pieces are painted here instead of baked: raised stone wall blocks, pillars, wall torches and bone piles.
+// Same contract as baked statics (sizes in sprite pixels, drawn at SC), drawn at 2× for sharpness.
+const GEN = {};
+function genSprite(key, v) {
+  const id = key + v; if (GEN[id]) return GEN[id];
+  const c = document.createElement('canvas'), g = c.getContext('2d'); const r = (() => { let s = v * 9301 + key.length * 49297; return () => (s = (s * 16807) % 2147483647) / 2147483647; })();
+  const poly = (pts, fill) => { g.beginPath(); g.moveTo(pts[0][0], pts[0][1]); for (const p of pts.slice(1)) g.lineTo(p[0], p[1]); g.closePath(); g.fillStyle = fill; g.fill(); };
+  const shade = (rgb, k) => `rgb(${rgb.map(q => Math.round(clamp(q * k, 0, 255))).join(',')})`;
+  let m;
+  if (key === 'cwall') {
+    const w = 128, d = 64, h = 64 + Math.floor(r() * 3) * 6; c.width = w + 4; c.height = h + d + 4; const cx = 66, by = h + d / 2 + 2; const base = [[78, 76, 84], [84, 80, 86], [72, 72, 80]][v % 3];
+    poly([[2, by], [cx, by + d / 2], [cx, by + d / 2 - h], [2, by - h]], shade(base, .62));
+    poly([[cx, by + d / 2], [w + 2, by], [w + 2, by - h], [cx, by + d / 2 - h]], shade(base, .82));
+    poly([[cx, by - h - d / 2], [w + 2, by - h], [cx, by - h + d / 2], [2, by - h]], shade(base, 1.08));
+    // mortar courses and a few cracked blocks on both faces
+    g.strokeStyle = 'rgba(0,0,0,.35)'; g.lineWidth = 1.5;
+    for (let k = 1; k < h / 16; k++) { const yy = by - k * 16; g.beginPath(); g.moveTo(2, yy); g.lineTo(cx, yy + d / 2); g.lineTo(w + 2, yy); g.stroke(); }
+    for (let k = 0; k < h / 16; k++) for (let j = 0; j < 4; j++) { const off = (k % 2) * 16 + j * 32 + 8; if (off > 62) continue; const x1 = 2 + off, y1 = by - k * 16 + off / 2, x2 = cx + off, y2 = by + d / 2 - k * 16 - off / 2;
+      g.beginPath(); g.moveTo(x1, y1); g.lineTo(x1, y1 - 16); g.moveTo(x2, y2); g.lineTo(x2, y2 - 16); g.stroke(); }
+    g.fillStyle = 'rgba(80,110,60,.25)'; for (let k = 0; k < 5; k++) { g.beginPath(); g.ellipse(4 + r() * 120, by - r() * h * .4, 6 + r() * 8, 3 + r() * 3, 0, 0, 7); g.fill(); }
+    m = { w: c.width, h: c.height, ax: cx, ay: by };
+  } else if (key === 'cpillar') {
+    c.width = 72; c.height = 230; const cx = 36, by = 214; const base = [96, 92, 100];
+    g.fillStyle = 'rgba(0,0,0,.35)'; g.beginPath(); g.ellipse(cx, by, 30, 14, 0, 0, 7); g.fill();
+    poly([[cx - 26, by - 4], [cx, by + 9], [cx, by - 22], [cx - 26, by - 30]], shade(base, .6)); poly([[cx, by + 9], [cx + 26, by - 4], [cx + 26, by - 30], [cx, by - 22]], shade(base, .78));
+    const sh = g.createLinearGradient(cx - 16, 0, cx + 16, 0); sh.addColorStop(0, shade(base, .55)); sh.addColorStop(.45, shade(base, .95)); sh.addColorStop(1, shade(base, .7)); g.fillStyle = sh; g.fillRect(cx - 16, 30, 32, by - 54);
+    g.strokeStyle = 'rgba(0,0,0,.28)'; g.lineWidth = 1.2; for (let k = 0; k < 4; k++) { g.beginPath(); g.moveTo(cx - 10 + k * 7, 34); g.lineTo(cx - 10 + k * 7, by - 30); g.stroke(); }
+    poly([[cx - 24, 34], [cx, 46], [cx + 24, 34], [cx, 22]], shade(base, 1.1)); poly([[cx - 24, 34], [cx, 46], [cx, 54], [cx - 24, 42]], shade(base, .6)); poly([[cx, 46], [cx + 24, 34], [cx + 24, 42], [cx, 54]], shade(base, .8));
+    m = { w: c.width, h: c.height, ax: cx, ay: by };
+  } else if (key === 'ctorch') {
+    c.width = 40; c.height = 120; const cx = 20, by = 104;
+    g.strokeStyle = '#2a2420'; g.lineWidth = 5; g.beginPath(); g.moveTo(cx, by - 46); g.lineTo(cx, by - 70); g.stroke();
+    poly([[cx - 7, by - 72], [cx + 7, by - 72], [cx + 5, by - 80], [cx - 5, by - 80]], '#3a302a');
+    m = { w: c.width, h: c.height, ax: cx, ay: by, torch: true };
+  } else if (key === 'cbones') {
+    c.width = 64; c.height = 36; const cx = 32, by = 22;
+    for (let k = 0; k < 4; k++) { const a = r() * Math.PI, x = cx + (r() - .5) * 30, y = by + (r() - .5) * 10; g.strokeStyle = '#000a'; g.lineWidth = 5; g.beginPath(); g.moveTo(x - Math.cos(a) * 9, y - Math.sin(a) * 4); g.lineTo(x + Math.cos(a) * 9, y + Math.sin(a) * 4); g.stroke(); g.strokeStyle = '#d8d0bc'; g.lineWidth = 3; g.stroke(); }
+    if (v % 2) { g.fillStyle = '#e2dac6'; g.beginPath(); g.ellipse(cx + 6, by - 4, 7, 6, 0, 0, 7); g.fill(); g.fillStyle = '#1a1612'; g.fillRect(cx + 2, by - 6, 3, 3); g.fillRect(cx + 7, by - 6, 3, 3); }
+    m = { w: c.width, h: c.height, ax: cx, ay: by, flat: true };
+  } else return null;
+  m.canvas = c; GEN[id] = m; return m;
+}
 const statics = W.objects.map(o => {
-  const m = MF.statics[o.key]; let depth = o.x + o.y;
+  const m = MF.statics[o.key] || genSprite(o.key, (Math.floor(o.x) * 7 + Math.floor(o.y) * 13) % 6); let depth = o.x + o.y;
   if (o.building) { const b = BMAP[o.building]; depth = (b.cx + b.w / 2 - .5) + (b.cy + b.h / 2 - .5); }
   else if (o.key.startsWith('wall') || o.key.startsWith('gate')) depth += 1;
   else if (o.key === 'mountain' || o.key === 'hills') depth -= 2;
+  else if (m && m.flat) depth -= .6;
+  else if (m && m.torch) depth += .05;                                // in front of the wall block it hangs on
   return { ...o, m, depth, name: o.building ? BMAP[o.building].name : null };
 }).filter(o => o.m);
-function drawStatic(o) { const im = img(o.m.file); if (!im) return; const [sx, sy] = toS(o.x, o.y); ctx.drawImage(im, sx - o.m.ax * SC, sy - o.m.ay * SC, o.m.w * SC, o.m.h * SC); }
+const torches = statics.filter(o => o.m.torch);
+function drawStatic(o) { const im = o.m.canvas || img(o.m.file); if (!im) return; const [sx, sy] = toS(o.x, o.y); ctx.drawImage(im, sx - o.m.ax * SC, sy - o.m.ay * SC, o.m.w * SC, o.m.h * SC); }
 
 // ───────────────────────── entities
 const ents = new Map();   // id -> {id,kind,name,sprite,level,flag,maxHp,x,y,rx,ry,dir,st,hp,atkT,hitT,deadT,say,sayT}
 let myId = 0, me = null, meStats = null, online = 0;
 const inParty = id => !!(party && party.id && party.members.some(mm => mm.id === id));
 // tinted variants of the baked adventurer sheets, used for human outlaws (no extra baking needed)
-const VARIANTS = { bandit: ['rogue', 'rgba(150,30,30,.5)'], deserter: ['knight', 'rgba(25,25,45,.55)'], cultist: ['mage', 'rgba(95,20,120,.55)'], brute: ['barbarian', 'rgba(40,80,30,.5)'] };
+const VARIANTS = { bandit: ['rogue', 'rgba(150,30,30,.5)'], deserter: ['knight', 'rgba(25,25,45,.55)'], cultist: ['mage', 'rgba(95,20,120,.55)'], brute: ['barbarian', 'rgba(40,80,30,.5)'],
+  // catacomb dwellers: tinted skeleton sheets
+  crypt_ghoul: ['skel_minion', 'rgba(70,120,50,.5)'], crypt_guard: ['skel_warrior', 'rgba(60,75,110,.5)'], crypt_priest: ['skel_mage', 'rgba(110,30,140,.5)'], crypt_knight: ['skel_warrior', 'rgba(15,15,30,.62)'], crypt_lord: ['skel_warrior', 'rgba(150,20,20,.5)'] };
 const tinted = new Map();
 function charDef(sprite) { return MF.characters[sprite] || (VARIANTS[sprite] && MF.characters[VARIANTS[sprite][0]]) || null; }
 function sheet(sprite, file) { const v = VARIANTS[sprite]; const base = img(file); if (!v || !base) return base; const key = sprite + ':' + file; let cv = tinted.get(key); if (cv) return cv; cv = document.createElement('canvas'); cv.width = base.naturalWidth; cv.height = base.naturalHeight; const g = cv.getContext('2d'); g.drawImage(base, 0, 0); g.globalCompositeOperation = 'source-atop'; g.fillStyle = v[1]; g.fillRect(0, 0, cv.width, cv.height); tinted.set(key, cv); return cv; }
@@ -153,7 +205,7 @@ function applySettings() { $('minimap').classList.toggle('big', !!SETTINGS.mmBig
 function openSettings() { const w = $('settings'); w.hidden = !w.hidden; if (w.hidden) return; w.innerHTML = `<div class="wh"><span class="wt">설정</span><button class="wx" id="setx">✕</button></div><div class="wb"><label><input type="checkbox" data-s="sound" ${isMuted() ? '' : 'checked'}> 효과음·환경음</label><label><input type="checkbox" data-s="names" ${SETTINGS.names ? 'checked' : ''}> 이름표 표시</label><label><input type="checkbox" data-s="hideOthersNames" ${SETTINGS.hideOthersNames ? 'checked' : ''}> 다른 모험가 이름 숨기기</label><label><input type="checkbox" data-s="dmg" ${SETTINGS.dmg ? 'checked' : ''}> 피해 숫자 표시</label><label><input type="checkbox" data-s="mmBig" ${SETTINGS.mmBig ? 'checked' : ''}> 큰 미니맵</label><div class="row"><button class="btn" id="zoomReset">확대 초기화</button><button class="btn" id="setLogout">로그아웃</button></div><p class="ds">단축키: A 공격 · H 치유 · S/D 기술 · 1·2·3 물약·귀환 · Z 줍기 · I 가방 · E 장비 · C 캐릭터 · Q 의뢰 · L 순위 · M 소리 · O 설정 · R 귓속말 답장 · Esc 멈춤</p></div>`;
   $('setx').onclick = () => { w.hidden = true; }; $('zoomReset').onclick = () => { zoom = defaultZoom(); zoomSet = false; }; $('setLogout').onclick = () => $('logout').click();
   for (const c of w.querySelectorAll('input[data-s]')) c.onchange = () => { if (c.dataset.s === 'sound') { const mu = toggleMute(); $('muteBtn').querySelector('small').textContent = mu ? '음소거' : '소리'; return; } SETTINGS[c.dataset.s] = c.checked; saveSettings(); }; }
-const rainDrops = []; const floats = [], bolts = [], clicks = [], rings = [], tele = [], chainsFx = []; let hurtT = -1e9, hurtAmt = 0, deadAt = 0, entering = false; let raidState = null, weather = 0, weatherAmt = 0, hoverId = 0, dayPhase = 0, questMarks = {}, party = null, isAdminUser = false, lastWhisper = null;
+const rainDrops = []; const floats = [], bolts = [], clicks = [], rings = [], tele = [], chainsFx = []; let hurtT = -1e9, hurtAmt = 0, deadAt = 0, entering = false, underAmt = 0, jumped = false; let raidState = null, weather = 0, weatherAmt = 0, hoverId = 0, dayPhase = 0, questMarks = {}, party = null, isAdminUser = false, lastWhisper = null;
 function renderParty() {
   const el = $('party'); if (!party || !party.id) { el.hidden = true; return; } el.hidden = false;
   el.innerHTML = `<div class="ph">파티 <span class="ds">${party.members.length}/5</span> <button class="link" id="pleave">나가기</button></div>` + party.members.map(mm => `<div class="pm${mm.id === myId ? ' me' : ''}${mm.id === party.leader ? ' lead' : ''}"><span class="nm">${mm.id === party.leader ? '★ ' : ''}${esc(mm.name)} <small>Lv${mm.level}</small></span><div class="bar hp"><i style="width:${100 * mm.hp / mm.maxHp}%"></i></div></div>`).join('');
@@ -166,10 +218,10 @@ function showInvite(m) {
   box.appendChild(d); setTimeout(() => d.remove(), m.kind === 'party' ? 60000 : 30000); sfx.quest();
 }
 // one-time tips for newcomers (remembered per browser)
-const TIPS = { move: '바닥을 클릭하면 이동, 몬스터를 클릭하거나 A 키를 누르면 공격합니다. 상인·스승은 클릭해서 말을 겁니다.', outside: '성 밖입니다. 6레벨부터는 다른 모험가가 공격해 올 수 있습니다. 귀환 주문서(3)로 언제든 마을로 돌아갑니다.', lowhp: '체력이 낮습니다! 1번 키로 물약을 마시거나 H로 치유하세요. 싸움을 멈추면 서서히 회복되고, 마을 안에서는 두 배로 빠릅니다.', drop: '바닥의 전리품은 클릭하거나 Z 키로 줍습니다. 10초 동안은 처치한 사람에게 우선권이 있습니다.', bag: '가방(I)에서 물건을 두 번 누르면 사용하거나 장착합니다. 장비(E)와 캐릭터(C) 창도 확인해 보세요.', party: '다른 모험가를 우클릭하면 파티 초대·거래·귓속말을 할 수 있습니다. 파티는 경험치를 나누고 서로 공격할 수 없습니다.', boss: '보스는 혼자서는 버겁습니다. 바닥에 붉은 원이 보이면 범위 공격 예고이니 피하세요. 파티를 모아 도전하세요.' };
+const TIPS = { move: '바닥을 클릭하면 이동, 몬스터를 클릭하거나 A 키를 누르면 공격합니다. 상인·스승은 클릭해서 말을 겁니다.', outside: '성 밖입니다. 6레벨부터는 다른 모험가가 공격해 올 수 있습니다. 귀환 주문서(3)로 언제든 마을로 돌아갑니다.', lowhp: '체력이 낮습니다! 1번 키로 물약을 마시거나 H로 치유하세요. 싸움을 멈추면 서서히 회복되고, 마을 안에서는 두 배로 빠릅니다.', drop: '바닥의 전리품은 클릭하거나 Z 키로 줍습니다. 10초 동안은 처치한 사람에게 우선권이 있습니다.', bag: '가방(I)에서 물건을 두 번 누르면 사용하거나 장착합니다. 장비(E)와 캐릭터(C) 창도 확인해 보세요.', party: '다른 모험가를 우클릭하면 파티 초대·거래·귓속말을 할 수 있습니다. 파티는 경험치를 나누고 서로 공격할 수 없습니다.', crypt: '지하 묘지입니다. 남쪽(안쪽)으로 갈수록 망자들이 강해지고, 가장 깊은 방에는 묘지기 군주가 있습니다. 입구 옆 보라색 계단으로 언제든 지상에 올라갈 수 있습니다.', boss: '보스는 혼자서는 버겁습니다. 바닥에 붉은 원이 보이면 범위 공격 예고이니 피하세요. 파티를 모아 도전하세요.' };
 let tipsSeen = {}; try { tipsSeen = JSON.parse(localStorage.getItem('rm-tips') || '{}'); } catch {}
 function tip(key) { if (tipsSeen[key] || !TIPS[key]) return; tipsSeen[key] = 1; try { localStorage.setItem('rm-tips', JSON.stringify(tipsSeen)); } catch {} const n = $('tip'); n.innerHTML = `<b>도움말</b> ${esc(TIPS[key])}`; n.hidden = false; clearTimeout(tip.t); tip.t = setTimeout(() => n.hidden = true, 12000); addLog('💡 ' + TIPS[key], 'sys'); }
-function showNotice(text) { const n = $('notice'); n.textContent = text; n.hidden = false; clearTimeout(showNotice.t); showNotice.t = setTimeout(() => n.hidden = true, 8000); }
+function showNotice(text, ms = 8000) { const n = $('notice'); n.textContent = text; n.hidden = false; clearTimeout(showNotice.t); showNotice.t = setTimeout(() => n.hidden = true, ms); }
 let ctxMenu = null;
 function playerMenu(e, px, py) {
   closeMenu(); const d = document.createElement('div'); d.className = 'panel ctxmenu'; d.style.left = px + 'px'; d.style.top = py + 'px';
@@ -275,7 +327,7 @@ canvas.addEventListener('touchstart', ev => { if (ev.touches.length === 2) { pin
 canvas.addEventListener('touchmove', ev => { clearTimeout(pressTimer); if (pinch && ev.touches.length === 2) { const d = Math.hypot(ev.touches[0].clientX - ev.touches[1].clientX, ev.touches[0].clientY - ev.touches[1].clientY); zoom = clamp(pinch.z * d / pinch.d, .6, 1.8); zoomSet = true; ev.preventDefault(); } }, { passive: false });
 canvas.addEventListener('touchend', () => { clearTimeout(pressTimer); pinch = null; }, { passive: true });
 canvas.addEventListener('wheel', ev => { zoom = clamp(zoom * (ev.deltaY > 0 ? .9 : 1.1), .6, 1.8); zoomSet = true; ev.preventDefault(); }, { passive: false });
-$('minimap').addEventListener('pointerdown', ev => { if (!myId) return; const r = ev.currentTarget.getBoundingClientRect(); const x = (ev.clientX - r.left) / r.width * MAP, y = (ev.clientY - r.top) / r.height * MAP; send({ t: 'move', x, y }); dest = { x, y, t0: performance.now() }; });
+$('minimap').addEventListener('pointerdown', ev => { if (!myId) return; const r = ev.currentTarget.getBoundingClientRect(); const R = mmRegion(); const x = R.x0 + (ev.clientX - r.left) / r.width * R.w, y = R.y0 + (ev.clientY - r.top) / r.height * R.w; send({ t: 'move', x, y }); dest = { x, y, t0: performance.now() }; });
 addEventListener('keydown', ev => {
   if (!myId) return; const inChat = document.activeElement === $('chatin');
   if (ev.key === 'Enter' && !inChat) { $('chatin').focus(); ev.preventDefault(); return; }
@@ -346,20 +398,27 @@ const ui = createUI({ MF, send: o => send(o), log: addLog });
 
 // ───────────────────────── minimap
 const mmBase = document.createElement('canvas'); mmBase.width = MAP; mmBase.height = MAP;
-{ const g = mmBase.getContext('2d'); for (let y = 0; y < MAP; y++) for (let x = 0; x < MAP; x++) { const c = GCOL[W.ground[y * MAP + x]][0]; g.fillStyle = `rgb(${c})`; if (W.block[y * MAP + x] && W.ground[y * MAP + x] !== G.WATER) g.fillStyle = W.ground[y * MAP + x] === G.COBBLE ? '#d8d0c0' : '#3a4a2a'; g.fillRect(x, y, 1, 1); } }
+{ const g = mmBase.getContext('2d'); for (let y = 0; y < MAP; y++) for (let x = 0; x < MAP; x++) { const gr = W.ground[y * MAP + x]; const c = GCOL[gr][0]; g.fillStyle = `rgb(${c})`; if (W.block[y * MAP + x] && gr !== G.WATER) g.fillStyle = gr === G.COBBLE ? '#d8d0c0' : gr === G.VOID ? '#0c0b0a' : gr === G.CRYPT ? '#24222a' : '#3a4a2a'; if (gr === G.CRYPT && !W.block[y * MAP + x]) g.fillStyle = '#6a6672'; g.fillRect(x, y, 1, 1); } }
 const mm = $('minimap').getContext('2d'); let dest = null;
+// the part of the world the minimap shows: the whole overworld, or a 60-tile window of the crypt strip that follows you
+function mmRegion() {
+  if (me && me.rx !== null && inDungeon(me.x, me.y)) { const w = 60; return { x0: DUNGEON.x0 - 4, y0: clamp(Math.round(me.ry) - w / 2, 0, MAP - w), w }; }
+  return { x0: 0, y0: 0, w: OVER };
+}
 function drawMinimap() {
-  mm.imageSmoothingEnabled = false; mm.drawImage(mmBase, 0, 0, 160, 160); const k = 160 / MAP;
+  const R = mmRegion(), k = 160 / R.w, X = x => (x - R.x0) * k, Y = y => (y - R.y0) * k;
+  mm.imageSmoothingEnabled = false; mm.fillStyle = '#0c0b0a'; mm.fillRect(0, 0, 160, 160); mm.drawImage(mmBase, R.x0, R.y0, R.w, R.w, 0, 0, 160, 160);
   // view window + destination
-  if (me && me.rx !== null) { mm.strokeStyle = 'rgba(255,255,255,.25)'; mm.lineWidth = 1; mm.strokeRect((me.rx - 13) * k, (me.ry - 13) * k, 26 * k, 26 * k); }
-  if (dest && performance.now() - dest.t0 < 20000 && me && Math.hypot(me.rx - dest.x, me.ry - dest.y) > 1.5) { mm.strokeStyle = '#ffd86b'; mm.lineWidth = 1; mm.beginPath(); mm.moveTo(dest.x * k - 3, dest.y * k - 3); mm.lineTo(dest.x * k + 3, dest.y * k + 3); mm.moveTo(dest.x * k + 3, dest.y * k - 3); mm.lineTo(dest.x * k - 3, dest.y * k + 3); mm.stroke(); }
-  // gates
-  mm.fillStyle = '#e8dcc0'; mm.font = 'bold 8px sans-serif'; mm.textAlign = 'center'; for (const g of GATES) mm.fillText(g.dir, g.x * k, g.y * k + 3);
+  if (me && me.rx !== null) { mm.strokeStyle = 'rgba(255,255,255,.25)'; mm.lineWidth = 1; mm.strokeRect(X(me.rx - 13), Y(me.ry - 13), 26 * k, 26 * k); }
+  if (dest && performance.now() - dest.t0 < 20000 && me && Math.hypot(me.rx - dest.x, me.ry - dest.y) > 1.5) { mm.strokeStyle = '#ffd86b'; mm.lineWidth = 1; mm.beginPath(); mm.moveTo(X(dest.x) - 3, Y(dest.y) - 3); mm.lineTo(X(dest.x) + 3, Y(dest.y) + 3); mm.moveTo(X(dest.x) + 3, Y(dest.y) - 3); mm.lineTo(X(dest.x) - 3, Y(dest.y) + 3); mm.stroke(); }
+  // gates above ground, portals everywhere
+  mm.fillStyle = '#e8dcc0'; mm.font = 'bold 8px sans-serif'; mm.textAlign = 'center'; if (R.w === OVER) for (const g of GATES) mm.fillText(g.dir, X(g.x), Y(g.y) + 3);
+  mm.fillStyle = '#b48cff'; for (const p of PORTALS) { const x = X(p.x + .5), y = Y(p.y + .5); if (x >= 0 && y >= 0 && x <= 160 && y <= 160) { mm.beginPath(); mm.arc(x, y, 3, 0, 7); mm.fill(); } }
   // party members (even out of view)
-  if (party && party.id) for (const pm of party.members) { if (pm.id === myId || ents.has(pm.id)) continue; mm.fillStyle = '#8fe3a0'; mm.beginPath(); mm.arc(pm.x * k, pm.y * k, 2, 0, 7); mm.fill(); }
-  for (const e of ents.values()) { if (e.st === 4 || e.rx === null || e.kind === 3) continue; if (e.kind === 4) { mm.fillStyle = '#a8e0a0'; mm.fillRect(e.rx * k - 1, e.ry * k - 1, 2, 2); continue; }
-    if (e.boss) { mm.fillStyle = '#ff9a4a'; star(mm, e.rx * k, e.ry * k, 4); continue; }
-    mm.fillStyle = e.id === myId ? '#ffd86b' : e.kind === 1 ? (inParty(e.id) ? '#8fe3a0' : e.flag === 2 ? '#ff5a4a' : '#7ab4ff') : e.elite ? '#f2d16a' : '#d03a2a'; const r = e.id === myId ? 3 : e.elite ? 2.2 : 1.6; mm.beginPath(); mm.arc(e.rx * k, e.ry * k, r, 0, 7); mm.fill(); }
+  if (party && party.id) for (const pm of party.members) { if (pm.id === myId || ents.has(pm.id)) continue; mm.fillStyle = '#8fe3a0'; mm.beginPath(); mm.arc(X(pm.x), Y(pm.y), 2, 0, 7); mm.fill(); }
+  for (const e of ents.values()) { if (e.st === 4 || e.rx === null || e.kind === 3) continue; if (e.kind === 4) { mm.fillStyle = '#a8e0a0'; mm.fillRect(X(e.rx) - 1, Y(e.ry) - 1, 2, 2); continue; }
+    if (e.boss) { mm.fillStyle = '#ff9a4a'; star(mm, X(e.rx), Y(e.ry), 4); continue; }
+    mm.fillStyle = e.id === myId ? '#ffd86b' : e.kind === 1 ? (inParty(e.id) ? '#8fe3a0' : e.flag === 2 ? '#ff5a4a' : '#7ab4ff') : e.elite ? '#f2d16a' : '#d03a2a'; const r = e.id === myId ? 3 : e.elite ? 2.2 : 1.6; mm.beginPath(); mm.arc(X(e.rx), Y(e.ry), r, 0, 7); mm.fill(); }
 }
 function star(g, x, y, r) { g.beginPath(); for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + i * Math.PI / 5, rr = i % 2 ? r * .45 : r; g.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr); } g.closePath(); g.fill(); }
 
@@ -375,13 +434,15 @@ function hud() {
   $('pcls').classList.toggle('bless', !!meStats[20]);
   $('xpb').style.width = (100 * xp / need) + '%'; $('xpt').textContent = `${(100 * xp / need).toFixed(1)}%`; $('plv').textContent = lv; $('gold').textContent = gold;
   $('align').textContent = align < 0 ? `카오틱 ${align}` : `성향 ${align}`; $('align').style.color = align < 0 ? '#ff6a5a' : '';
-  if (me) { const safe = isSafe(me.x, me.y); const z = safe ? '성내 · 안전 지대' : '성 밖 · PK 허용'; if (z !== lastZone) { lastZone = z; $('zonet').textContent = z; $('zone').classList.toggle('danger', !safe); if (!safe) tip('outside'); } }
+  if (me) { const safe = isSafe(me.x, me.y), under = inDungeon(me.x, me.y); const z = under ? `지하 묘지 · ${CRYPT_FLOOR_NAME[cryptFloor(me.y)]}` : safe ? '성내 · 안전 지대' : '성 밖 · PK 허용';
+    if (z !== lastZone) { lastZone = z; $('zonet').textContent = z; $('zone').classList.toggle('danger', !safe); $('zone').classList.toggle('crypt', under); if (under) { tip('crypt'); showNotice(z, 3000); } else if (!safe) tip('outside'); } }
   if (hp < mhp * .4 && hp > 0) tip('lowhp'); if (meStats[21]) tip('party');
   $('online').textContent = `주변 ${online}명 · ${latency}ms`; $('pcls').textContent = classInfo(meStats[11]).name; const sk = classInfo(meStats[11]).skill; $('skName').textContent = sk ? sk.name : '기술'; $('cdH').style.height = (100 * Math.min(1, meStats[12] / 5000)) + '%'; $('cdS').style.height = (sk ? 100 * Math.min(1, meStats[13] / meStats[14]) : 100) + '%';
   const sk2 = classInfo(meStats[11]).skill2; $('sk2Name').textContent = sk2 ? sk2.name : '기술2'; $('cdD').style.height = (sk2 ? 100 * Math.min(1, meStats[18] / meStats[19]) : 100) + '%';
   const bb = $('bossbar'); const tgb = ents.get(targetId); if (tgb && tgb.boss && tgb.st !== 4) { bb.hidden = false; tip('boss'); $('bossname').textContent = `${tgb.name} · Lv ${tgb.level}`; $('bosshp').style.width = (100 * tgb.hp / tgb.maxHp) + '%'; $('bosshpt').textContent = `${tgb.hp} / ${tgb.maxHp}`; } else bb.hidden = true;
   // darkness peaks at phase .5 and is lightest at 0, so phase 0 is noon and .5 is midnight
-  const hr = Math.floor((dayPhase * 24 + 12) % 24); if (me) setAmbience({ rain: weather === 1 ? 1 : 0, fountain: Math.max(0, 1 - Math.hypot(me.x - CX, me.y - CY - .5) / 10), night: Math.max(0, Math.sin((dayPhase - .25) * Math.PI * 2)), hour: hr, inTown: isSafe(me.x, me.y) }); $('clock').textContent = `${String(hr).padStart(2, '0')}시 ${nightLabel(dayPhase)}`;
+  const hr = Math.floor((dayPhase * 24 + 12) % 24); const ug = !!(me && inDungeon(me.x, me.y));
+  if (me) setAmbience({ rain: weather === 1 && !ug ? 1 : 0, fountain: ug ? 0 : Math.max(0, 1 - Math.hypot(me.x - CX, me.y - CY - .5) / 10), night: ug ? 0 : Math.max(0, Math.sin((dayPhase - .25) * Math.PI * 2)), hour: hr, inTown: isSafe(me.x, me.y) }); $('clock').textContent = ug ? '' : `${String(hr).padStart(2, '0')}시 ${nightLabel(dayPhase)}`;
   const cnt = id => ui.state.inv.filter(x => x.id === id).reduce((a, x) => a + x.n, 0); $('n1').textContent = cnt('hpPotion'); $('n2').textContent = cnt('mpPotion'); $('n3').textContent = cnt('scroll');
   const tg = ents.get(targetId); if (tg && tg.st !== 4) { $('target').hidden = false; $('tname').textContent = tg.name; $('tlv').textContent = `Lv ${tg.level}`; $('thpb').style.width = (100 * tg.hp / tg.maxHp) + '%'; $('thpt').textContent = `${tg.hp} / ${tg.maxHp}`; } else $('target').hidden = true;
   const dead = !!(me && me.st === 4); if (dead && !deadAt) deadAt = performance.now(); else if (!dead) deadAt = 0; $('dead').hidden = !dead;
@@ -394,22 +455,28 @@ let last = performance.now(), frameN = 0;
 function frame(t) {
   const dt = Math.min(.05, (t - last) / 1000); last = t; frameN++;
   for (const e of ents.values()) { if (e.rx === null) continue; const k = Math.min(1, dt * 14); e.rx += (e.x - e.rx) * k; e.ry += (e.y - e.ry) * k; }
-  if (me && me.rx !== null) { const [sx, sy] = toS(me.rx, me.ry); const k = entering ? 1 : Math.min(1, dt * 10); cam.x += (sx - cam.x) * k; cam.y += (sy - 24 + camOff / zoom - cam.y) * k; }
+  if (me && me.rx !== null) { const [sx, sy] = toS(me.rx, me.ry); const far = Math.hypot(sx - cam.x, sy - cam.y) > 900; const k = entering || far ? 1 : Math.min(1, dt * 10); if (far) jumped = true; cam.x += (sx - cam.x) * k; cam.y += (sy - 24 + camOff / zoom - cam.y) * k; }
   ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.fillStyle = '#14130f'; ctx.fillRect(0, 0, canvas.width, canvas.height);
   if (myId) {
     const s = DPR * zoom; ctx.setTransform(s, 0, 0, s, (VW / 2 - cam.x * zoom) * DPR, (VH / 2 - cam.y * zoom) * DPR);
     const hw = VW / 2 / zoom + TW * 2, hh = VH / 2 / zoom + TH * 2;
     // ground chunks overlapping the view
     // while entering, build every visible chunk behind the join screen so the world never appears half-drawn
-    chunkBudget = entering ? 64 : 2; const corners = [toW(cam.x - hw, cam.y - hh), toW(cam.x + hw, cam.y - hh), toW(cam.x - hw, cam.y + hh), toW(cam.x + hw, cam.y + hh)];
+    // (also right after a portal/teleport jump, so you never arrive into an unpainted void)
+    chunkBudget = entering || jumped ? 64 : 2; jumped = false; const corners = [toW(cam.x - hw, cam.y - hh), toW(cam.x + hw, cam.y - hh), toW(cam.x - hw, cam.y + hh), toW(cam.x + hw, cam.y + hh)];
     const cx0 = clamp(Math.floor(Math.min(...corners.map(c => c[0])) / CH), 0, MAP / CH - 1), cx1 = clamp(Math.floor(Math.max(...corners.map(c => c[0])) / CH), 0, MAP / CH - 1);
     const cy0 = clamp(Math.floor(Math.min(...corners.map(c => c[1])) / CH), 0, MAP / CH - 1), cy1 = clamp(Math.floor(Math.max(...corners.map(c => c[1])) / CH), 0, MAP / CH - 1);
     for (let cy = cy0; cy <= cy1; cy++) for (let cx = cx0; cx <= cx1; cx++) { const c = getChunk(cx, cy); if (c) ctx.drawImage(c.c, c.left, c.top, c.w, c.h); }
     if (entering && me && me.rx !== null && meStats) { entering = false; $('join').hidden = true; $('hud').hidden = false; $('jerr').textContent = ''; }
     // water shimmer
     ctx.strokeStyle = 'rgba(210,235,255,.22)'; ctx.lineWidth = 1.2; ctx.beginPath();
-    for (let x = Math.max(0, Math.floor(Math.min(...corners.map(c => c[0])))); x < Math.min(MAP, Math.ceil(Math.max(...corners.map(c => c[0])))); x++) { const y = W.riverY[x]; for (const yy of [y - 1, y, y + 1]) { const [sx, sy] = toS(x + .5, yy + .5); if (Math.abs(sx - cam.x) > hw || Math.abs(sy - cam.y) > hh) continue; const ph = t / 900 + x * .7 + yy; ctx.moveTo(sx - 10 + Math.sin(ph) * 6, sy + Math.cos(ph * .8) * 3); ctx.quadraticCurveTo(sx + Math.sin(ph) * 6, sy - 3 + Math.cos(ph * .8) * 3, sx + 10 + Math.sin(ph) * 6, sy + Math.cos(ph * .8) * 3); } }
+    for (let x = Math.max(0, Math.floor(Math.min(...corners.map(c => c[0])))); x < Math.min(OVER, Math.ceil(Math.max(...corners.map(c => c[0])))); x++) { const y = W.riverY[x]; for (const yy of [y - 1, y, y + 1]) { const [sx, sy] = toS(x + .5, yy + .5); if (Math.abs(sx - cam.x) > hw || Math.abs(sy - cam.y) > hh) continue; const ph = t / 900 + x * .7 + yy; ctx.moveTo(sx - 10 + Math.sin(ph) * 6, sy + Math.cos(ph * .8) * 3); ctx.quadraticCurveTo(sx + Math.sin(ph) * 6, sy - 3 + Math.cos(ph * .8) * 3, sx + 10 + Math.sin(ph) * 6, sy + Math.cos(ph * .8) * 3); } }
     ctx.stroke();
+    // portals: a stair pit ringed by slowly turning violet runes
+    for (const p of PORTALS) { const [sx, sy] = toS(p.x + .5, p.y + .5); if (Math.abs(sx - cam.x) > hw || Math.abs(sy - cam.y) > hh) continue;
+      ctx.fillStyle = '#060508'; ctx.beginPath(); ctx.ellipse(sx, sy, 26, 13, 0, 0, 7); ctx.fill();
+      for (let k = 0; k < 4; k++) { ctx.fillStyle = `rgba(120,110,130,${.5 - k * .1})`; ctx.fillRect(sx - 14 + k * 3, sy - 6 + k * 3.5, 28 - k * 6, 2.5); }
+      ctx.lineWidth = 2; for (let k = 0; k < 8; k++) { const a = t / 1400 + k * Math.PI / 4; ctx.strokeStyle = `rgba(170,130,255,${.45 + .3 * Math.sin(t / 300 + k)})`; ctx.beginPath(); ctx.ellipse(sx, sy, 30, 15, 0, a, a + .45); ctx.stroke(); } }
     // click markers
     for (let i = clicks.length - 1; i >= 0; i--) { const c = clicks[i]; const a = 1 - (t - c.t0) / 600; if (a <= 0) { clicks.splice(i, 1); continue; } const [sx, sy] = toS(c.x, c.y); ctx.strokeStyle = `rgba(255,225,150,${a})`; ctx.lineWidth = 2; ctx.beginPath(); ctx.ellipse(sx, sy, 10 + (1 - a) * 14, 5 + (1 - a) * 7, 0, 0, 7); ctx.stroke(); }
     for (let i = tele.length - 1; i >= 0; i--) { const q = tele[i]; const p = (t - q.t0) / q.life; if (p >= 1) { tele.splice(i, 1); continue; }
@@ -427,6 +494,8 @@ function frame(t) {
     for (let i = rings.length - 1; i >= 0; i--) { const r = rings[i]; const p = (t - r.t0) / r.life; if (p >= 1) { rings.splice(i, 1); continue; } const [sx, sy] = toS(r.x, r.y); const rr = r.r * (.3 + p * .7); if (r.fill) { const gr = ctx.createRadialGradient(sx, sy, 0, sx, sy, rr); gr.addColorStop(0, `rgba(${r.col},${.55 * (1 - p)})`); gr.addColorStop(1, `rgba(${r.col},0)`); ctx.fillStyle = gr; ctx.beginPath(); ctx.ellipse(sx, sy, rr, rr * .5, 0, 0, 7); ctx.fill(); } ctx.strokeStyle = `rgba(${r.col},${1 - p})`; ctx.lineWidth = 2; ctx.beginPath(); ctx.ellipse(sx, sy - 2, rr, rr * .5, 0, 0, 7); ctx.stroke(); }
     // labels, hp bars, chat bubbles, floating numbers (screen-aligned)
     ctx.textAlign = 'center';
+    for (const p of PORTALS) { const [sx, sy] = toS(p.x + .5, p.y + .5); if (Math.abs(sx - cam.x) > hw || Math.abs(sy - cam.y) > hh) continue; const nm = p.x < OVER ? '지하 묘지 입구' : '지상으로';
+      ctx.font = "500 11px 'Noto Sans KR'"; const tw = ctx.measureText(nm).width + 14; ctx.fillStyle = 'rgba(16,12,22,.82)'; ctx.fillRect(sx - tw / 2, sy + 14, tw, 18); ctx.fillStyle = '#c9b0ff'; ctx.fillText(nm, sx, sy + 27); }
     for (const o of statics) if (o.name && o.building !== 'well' && !o.building.startsWith('home')) { const [sx, sy] = toS(o.x, o.y); if (Math.abs(sx - cam.x) > hw || Math.abs(sy - cam.y) > hh) continue; ctx.font = "500 11px 'Noto Sans KR'"; const tw = ctx.measureText(o.name).width + 14; ctx.fillStyle = 'rgba(16,14,12,.78)'; ctx.fillRect(sx - tw / 2, sy + 8, tw, 18); ctx.fillStyle = '#e8d3a4'; ctx.fillText(o.name, sx, sy + 21); }
     // loot labels: nudge upward past labels already placed so a pile of drops stays readable
     const placed = []; ctx.font = "500 10.5px 'Noto Sans KR'";
@@ -437,9 +506,11 @@ function frame(t) {
       placed.push([sx, y, w]); ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,.85)'; ctx.strokeText(e.name, sx, y); ctx.fillStyle = e.sprite === 'gold' ? '#ffd86b' : '#e8e0cf'; ctx.fillText(e.name, sx, y); }
     for (const e of ents.values()) {
       if (e.rx === null || e.st === 4 || e.kind === 3) continue; const [sx, sy] = toS(e.rx, e.ry);
-      const y = sy - headY(e) - 8;
+      let y = sy - headY(e) - 8;
       ctx.font = (e.id === myId || e.boss ? "700 12px" : "500 11px") + " 'Noto Sans KR'"; const label = e.kind === 2 ? `${e.name} Lv${e.level}` : e.title ? `${e.title} ${e.name}` : e.name;
       if (!SETTINGS.names && e.id !== myId && e.id !== targetId && !e.boss) continue; if (SETTINGS.hideOthersNames && e.kind === 1 && e.id !== myId && e.id !== targetId && !inParty(e.id)) continue;
+      // a crowd (boss + summons, a mob pile) stacks its name tags instead of printing them on top of each other
+      { const lw = ctx.measureText(label).width + 6; for (let n = 0; n < 6 && placed.some(r => Math.abs(r[0] - sx) < (r[2] + lw) / 2 && Math.abs(r[1] - y) < 14); n++) y -= 14; placed.push([sx, y, lw]); }
       if (e.kind === 4 && questMarks[e.extra]) { ctx.font = "700 16px 'Noto Sans KR'"; const qm = questMarks[e.extra] === 2 ? '?' : '!'; const qy = y - 16 - Math.abs(Math.sin(t / 400)) * 4; ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,.85)'; ctx.strokeText(qm, sx, qy); ctx.fillStyle = '#ffd86b'; ctx.fillText(qm, sx, qy); ctx.font = "500 11px 'Noto Sans KR'"; }
       ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,.85)'; ctx.strokeText(label, sx, y); ctx.fillStyle = e.boss ? '#ff9a4a' : e.elite ? '#f2d16a' : entColor(e); ctx.fillText(label, sx, y);
       if (e.guild) { ctx.font = "500 9.5px 'Noto Sans KR'"; ctx.strokeText(`〔${e.guild}〕`, sx, y - 12); ctx.fillStyle = '#d8c27a'; ctx.fillText(`〔${e.guild}〕`, sx, y - 12); }
@@ -450,18 +521,29 @@ function frame(t) {
       // crits pop in large then settle
       const size = (f.big ? 17 : 14) * (f.pop ? 1 + Math.max(0, .6 - p * 3) : 1); ctx.font = `700 ${size.toFixed(1)}px 'Noto Sans KR'`; ctx.globalAlpha = 1 - p * p; ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,.85)'; const y = sy - f.h - 12 - p * 34; ctx.strokeText(f.txt, sx, y); ctx.fillStyle = f.col; ctx.fillText(f.txt, sx, y); ctx.globalAlpha = 1; }
     // weather (server-synchronised): rain streaks + cool tint, or fog with a clear circle around the player
-    weatherAmt += ((weather ? 1 : 0) - weatherAmt) * Math.min(1, dt * .5);
+    const under = !!(me && inDungeon(me.x, me.y)); underAmt += ((under ? 1 : 0) - underAmt) * Math.min(1, dt * 3);
+    weatherAmt += ((weather && !under ? 1 : 0) - weatherAmt) * Math.min(1, dt * (under ? 4 : .5));
     if (weatherAmt > .02) { ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-      if (weather === 1 || (weather === 0 && rainDrops.length)) { ctx.fillStyle = `rgba(40,50,70,${.22 * weatherAmt})`; ctx.globalCompositeOperation = 'multiply'; ctx.fillRect(0, 0, VW, VH); ctx.globalCompositeOperation = 'source-over';
+      if ((weather === 1 && !under) || ((weather === 0 || under) && rainDrops.length)) { ctx.fillStyle = `rgba(40,50,70,${.22 * weatherAmt})`; ctx.globalCompositeOperation = 'multiply'; ctx.fillRect(0, 0, VW, VH); ctx.globalCompositeOperation = 'source-over';
         while (rainDrops.length < 160 * weatherAmt) rainDrops.push({ x: Math.random() * (VW + 200) - 100, y: Math.random() * VH, v: 600 + Math.random() * 300, l: 10 + Math.random() * 10 });
-        if (weather !== 1 && rainDrops.length) rainDrops.length = Math.max(0, rainDrops.length - 3);
+        if ((weather !== 1 || under) && rainDrops.length) rainDrops.length = Math.max(0, rainDrops.length - 3);
         ctx.strokeStyle = `rgba(200,215,240,${.35 * weatherAmt})`; ctx.lineWidth = 1; ctx.beginPath(); for (const d of rainDrops) { d.y += d.v * dt; d.x += d.v * .25 * dt; if (d.y > VH) { d.y = -20; d.x = Math.random() * (VW + 200) - 100; } ctx.moveTo(d.x, d.y); ctx.lineTo(d.x - d.l * .25, d.y - d.l); } ctx.stroke(); }
-      if (weather === 2) { const [gx, gy] = me && me.rx !== null ? toS(me.rx, me.ry) : [cam.x, cam.y]; const x = (gx - cam.x) * zoom + VW / 2, y = (gy - 20 - cam.y) * zoom + VH / 2; const gr = ctx.createRadialGradient(x, y, 90 * zoom, x, y, 520 * zoom); gr.addColorStop(0, `rgba(205,210,220,${.05 * weatherAmt})`); gr.addColorStop(1, `rgba(205,210,220,${.82 * weatherAmt})`); ctx.fillStyle = gr; ctx.fillRect(0, 0, VW, VH); } }
+      if (weather === 2 && !under) { const [gx, gy] = me && me.rx !== null ? toS(me.rx, me.ry) : [cam.x, cam.y]; const x = (gx - cam.x) * zoom + VW / 2, y = (gy - 20 - cam.y) * zoom + VH / 2; const gr = ctx.createRadialGradient(x, y, 90 * zoom, x, y, 520 * zoom); gr.addColorStop(0, `rgba(205,210,220,${.05 * weatherAmt})`); gr.addColorStop(1, `rgba(205,210,220,${.82 * weatherAmt})`); ctx.fillStyle = gr; ctx.fillRect(0, 0, VW, VH); } }
     // day/night tint (server-synchronised)
-    const night = Math.max(0, Math.sin((dayPhase - .25) * Math.PI * 2)); const nightAmt = night * night * .78;
-    if (nightAmt > .02) { ctx.setTransform(DPR, 0, 0, DPR, 0, 0); ctx.fillStyle = `rgba(18,22,52,${nightAmt})`; ctx.globalCompositeOperation = 'multiply'; ctx.fillRect(0, 0, VW, VH); ctx.globalCompositeOperation = 'source-over';
-      ctx.globalCompositeOperation = 'lighter'; const glow = (wx, wy, r, a) => { const [gx, gy] = toS(wx, wy); const x = (gx - cam.x) * zoom + VW / 2, y = (gy - 20 - cam.y) * zoom + VH / 2; const gr = ctx.createRadialGradient(x, y, 0, x, y, r * zoom); gr.addColorStop(0, `rgba(255,190,110,${a * nightAmt})`); gr.addColorStop(1, 'rgba(255,190,110,0)'); ctx.fillStyle = gr; ctx.fillRect(x - r * zoom, y - r * zoom, r * zoom * 2, r * zoom * 2); };
-      if (me && me.rx !== null) glow(me.rx, me.ry, 170, .55); for (const e of ents.values()) if (e.kind === 4 && e.rx !== null) glow(e.rx, e.ry, 110, .4); for (const g of GATES) glow(g.x + .5, g.y + .5, 140, .5); glow(CX, CY + .5, 120, .35);
+    // the catacombs are always dark (underAmt fades it in/out across a portal); day/night only applies above ground
+    const night = Math.max(0, Math.sin((dayPhase - .25) * Math.PI * 2)); const nightAmt = Math.max(night * night * .78 * (1 - underAmt), underAmt * .82);
+    if (nightAmt > .02) { ctx.setTransform(DPR, 0, 0, DPR, 0, 0); ctx.fillStyle = underAmt > .5 ? `rgba(14,10,22,${nightAmt})` : `rgba(18,22,52,${nightAmt})`; ctx.globalCompositeOperation = 'multiply'; ctx.fillRect(0, 0, VW, VH); ctx.globalCompositeOperation = 'source-over';
+      ctx.globalCompositeOperation = 'lighter'; const glow = (wx, wy, r, a, col = '255,190,110', lift = 20) => { const [gx, gy] = toS(wx, wy); const x = (gx - cam.x) * zoom + VW / 2, y = (gy - lift - cam.y) * zoom + VH / 2; if (x < -r * zoom || y < -r * zoom || x > VW + r * zoom || y > VH + r * zoom) return; const gr = ctx.createRadialGradient(x, y, 0, x, y, r * zoom); gr.addColorStop(0, `rgba(${col},${a * nightAmt})`); gr.addColorStop(1, `rgba(${col},0)`); ctx.fillStyle = gr; ctx.fillRect(x - r * zoom, y - r * zoom, r * zoom * 2, r * zoom * 2); };
+      if (under) {
+        if (me && me.rx !== null) glow(me.rx, me.ry, 200, .5);
+        for (const o of torches) { const fl = .8 + .2 * Math.sin(t / 90 + o.x * 3) * Math.sin(t / 53 + o.y); glow(o.x, o.y, 150 * fl, .55 * fl, '255,170,80', 36); }
+        for (const p of PORTALS) if (p.x >= OVER) glow(p.x + .5, p.y + .5, 120, .5, '160,110,255', 4);
+      } else { if (me && me.rx !== null) glow(me.rx, me.ry, 170, .55); for (const e of ents.values()) if (e.kind === 4 && e.rx !== null) glow(e.rx, e.ry, 110, .4); for (const g of GATES) glow(g.x + .5, g.y + .5, 140, .5); glow(CX, CY + .5, 120, .35); }
+      ctx.globalCompositeOperation = 'source-over'; }
+    // torch flames sit above the darkness so they read as light sources
+    if (underAmt > .02) { ctx.setTransform(DPR * zoom, 0, 0, DPR * zoom, (VW / 2 - cam.x * zoom) * DPR, (VH / 2 - cam.y * zoom) * DPR); ctx.globalCompositeOperation = 'lighter';
+      for (const o of torches) { const [sx, sy] = toS(o.x, o.y); if (Math.abs(sx - cam.x) > hw || Math.abs(sy - cam.y) > hh) continue; const f = Math.sin(t / 70 + o.x) * 1.5, fy = sy - 42;
+        const gr = ctx.createRadialGradient(sx, fy, 0, sx, fy, 9); gr.addColorStop(0, 'rgba(255,240,180,.95)'); gr.addColorStop(.5, 'rgba(255,150,40,.7)'); gr.addColorStop(1, 'rgba(255,90,20,0)'); ctx.fillStyle = gr; ctx.beginPath(); ctx.ellipse(sx + f * .4, fy - 2, 5, 8 + f, 0, 0, 7); ctx.fill(); }
       ctx.globalCompositeOperation = 'source-over'; }
     // vignette
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0); const vg = ctx.createRadialGradient(VW / 2, VH / 2, Math.min(VW, VH) * .45, VW / 2, VH / 2, Math.max(VW, VH) * .75); vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,0,.45)'); ctx.fillStyle = vg; ctx.fillRect(0, 0, VW, VH);

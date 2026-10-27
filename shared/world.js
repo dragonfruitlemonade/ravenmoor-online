@@ -1,7 +1,8 @@
 // Shared world definition. Imported by the server (Node ESM) and the client (browser ESM).
 // Everything here must be deterministic so both sides build the identical map.
 
-export const MAP = 176;
+export const OVER = 176;                                          // overworld is 0..OVER-1 on both axes
+export const MAP = 256;                                           // full grid: overworld + the underground strip to the east
 export const TILE_W = 64, TILE_H = 32;
 export const TOWN = { x0: 64, y0: 64, x1: 112, y1: 112 };        // wall ring, inclusive (48×48)
 export const CX = 88, CY = 88;                                   // town centre (plaza fountain)
@@ -10,7 +11,24 @@ export const GATES = [ { x: 88, y: TOWN.y1, sprite: 'gate_x', dir: 'S' }, { x: T
 export const VIEW_RADIUS = 26;                                   // tiles sent to each client
 export const TICK_HZ = 20, SNAP_HZ = 10;
 
-export const G = { GRASS: 0, DIRT: 1, ROAD: 2, COBBLE: 3, WATER: 4, SAND: 5, DARK: 6, ASH: 7, BRIDGE: 8 };
+export const G = { GRASS: 0, DIRT: 1, ROAD: 2, COBBLE: 3, WATER: 4, SAND: 5, DARK: 6, ASH: 7, BRIDGE: 8, CRYPT: 9, VOID: 10 };
+
+// ── the catacombs: a chain of rooms carved into the strip east of the overworld. It sits more than VIEW_RADIUS
+// tiles from any overworld tile, so snapshots and broadcasts never mix the two. Deeper (further south) = stronger.
+export const DUNGEON = { x0: 200, y0: 4, x1: 251, y1: 171, name: '잊힌 지하 묘지' };
+export const inDungeon = (x, y) => x >= DUNGEON.x0 - 4 && x <= DUNGEON.x1 + 4 && y >= DUNGEON.y0 - 4 && y <= DUNGEON.y1 + 4;
+// rooms [cx, cy, w, h] in walking order; the last one is the lord's chamber
+export const CRYPT_ROOMS = [[214, 12, 10, 8], [234, 22, 12, 10], [212, 36, 12, 10], [236, 50, 12, 10], [214, 66, 12, 10], [238, 80, 12, 10], [214, 94, 12, 10], [238, 108, 12, 10], [214, 124, 12, 10], [236, 138, 12, 10], [225, 158, 20, 14]];
+export const CRYPT_ENTRANCE = { x: 52, y: 136 };                 // overworld, south-west of town
+// stepping on a portal tile moves you to (tx, ty); arrival spots are never portal tiles
+export const PORTALS = [
+  { x: 52, y: 136, tx: 214.5, ty: 12.5, msg: '어둡고 축축한 계단을 따라 지하 묘지로 내려갑니다…' },
+  { x: 210, y: 9, tx: 52.5, ty: 138.5, msg: '지상으로 올라왔습니다.' },
+  { x: 225, y: 163, tx: 52.5, ty: 138.5, msg: '군주의 방 뒤편 통로를 따라 지상으로 올라왔습니다.' },
+];
+export const portalAt = (x, y) => { const tx = Math.floor(x), ty = Math.floor(y); return PORTALS.find(p => p.x === tx && p.y === ty) || null; };
+export const cryptFloor = y => y < 60 ? 1 : y < 116 ? 2 : y < 150 ? 3 : 4;
+export const CRYPT_FLOOR_NAME = ['', '1층 · 납골 회랑', '2층 · 망자의 예배실', '3층 · 심연의 통로', '군주의 방'];
 
 export function rng(seed) { let a = seed | 0; return () => { a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
 function h2(x, y) { let h = (x * 374761393 + y * 668265263) | 0; h = (h ^ (h >>> 13)) * 1274126177 | 0; return ((h ^ (h >>> 16)) >>> 0) / 4294967296; }
@@ -54,6 +72,13 @@ export const MONSTERS = {
     skills: [{ k: 'charge', cd: 8000, mul: 2.0 }, { k: 'roar', cd: 14000, r: 3 }] },
   boss_lich:    { name: '리치 왕',       level: 25, hp: 4200, atk: 70, def: 22, exp: 5200, gold: [500, 900], speed: 2.3, aggro: 9, fixed: [24.5, 150.5], count: 1, boss: true, sprite: 'skel_mage', scale: 1.7, ranged: 5, respawn: 420000,
     skills: [{ k: 'slam', cd: 10000, mul: 2.8, r: 2.6, wind: 1100 }, { k: 'summon', cd: 20000 }, { k: 'regen', cd: 25000 }] },
+  // catacomb dwellers: placed by depth band (crypt: [y from, y to]) instead of a ring around town; tinted skeleton sheets (client VARIANTS)
+  crypt_ghoul:  { name: '묘지 구울',     level: 14, hp: 380, atk: 60, def: 12, exp: 170, gold: [30, 55],  speed: 2.9, aggro: 6, crypt: [16, 58],   count: 16, sprite: 'crypt_ghoul' },
+  crypt_guard:  { name: '납골당 파수병', level: 18, hp: 560, atk: 72, def: 18, exp: 260, gold: [40, 70],  speed: 2.5, aggro: 6, crypt: [60, 114],  count: 14, sprite: 'crypt_guard' },
+  crypt_priest: { name: '망자의 사제',   level: 21, hp: 520, atk: 84, def: 14, exp: 320, gold: [50, 85],  speed: 2.4, aggro: 7, crypt: [70, 146],  count: 10, sprite: 'crypt_priest', ranged: 4.5 },
+  crypt_knight: { name: '심연의 기사',   level: 24, hp: 900, atk: 92, def: 24, exp: 450, gold: [70, 120], speed: 2.6, aggro: 7, crypt: [116, 146], count: 12, sprite: 'crypt_knight' },
+  boss_crypt:   { name: '묘지기 군주 모르바스', level: 30, hp: 7000, atk: 105, def: 28, exp: 9000, gold: [900, 1500], speed: 2.6, aggro: 9, fixed: [225.5, 156.5], count: 1, boss: true, sprite: 'crypt_lord', scale: 1.9, respawn: 600000,
+    skills: [{ k: 'slam', cd: 9000, mul: 2.6, r: 2.4, wind: 1000 }, { k: 'summon', cd: 22000, mob: 'crypt_ghoul' }, { k: 'charge', cd: 11000, mul: 2.0 }, { k: 'regen', cd: 30000 }] },
 };
 
 export const LOOKS = { knight: '기사', barbarian: '야만전사', rogue: '도적', mage: '마법사' };
@@ -67,9 +92,10 @@ export function buildWorld() {
   const cx = CX + .5, cy = CY + .5;
   const riverY = []; for (let x = 0; x < MAP; x++) riverY.push(150 + Math.round((noise(x * .05, 3.7) - .5) * 10));
 
-  // ground
-  for (let y = 0; y < MAP; y++) for (let x = 0; x < MAP; x++) {
-    let g = G.GRASS;
+  // ground (outside the overworld square everything starts as solid void; the crypt is carved out of it below)
+  for (let i = 0; i < N; i++) { ground[i] = G.VOID; block[i] = 1; }
+  for (let y = 0; y < OVER; y++) for (let x = 0; x < OVER; x++) {
+    block[idx(x, y)] = 0; let g = G.GRASS;
     const d = Math.max(Math.abs(x + .5 - cx), Math.abs(y + .5 - cy));
     const n = noise(x * .08, y * .08);
     if (x <= TOWN.x1 && x >= TOWN.x0 && y <= TOWN.y1 && y >= TOWN.y0) { g = G.COBBLE; if (noise(x * .13 + 7, y * .13 + 3) > .6 && d < 22 && d > 6) g = G.DIRT; }
@@ -83,9 +109,9 @@ export function buildWorld() {
     ground[idx(x, y)] = g;
   }
   // roads from the four gates and the ring road inside
-  for (let y = TOWN.y1 + 1; y < MAP; y++) for (const x of [CX - 1, CX, CX + 1]) ground[idx(x, y)] = (ground[idx(x, y)] === G.WATER || ground[idx(x, y)] === G.SAND) ? G.BRIDGE : G.ROAD;
+  for (let y = TOWN.y1 + 1; y < OVER; y++) for (const x of [CX - 1, CX, CX + 1]) ground[idx(x, y)] = (ground[idx(x, y)] === G.WATER || ground[idx(x, y)] === G.SAND) ? G.BRIDGE : G.ROAD;
   for (let y = 0; y < TOWN.y0; y++) for (const x of [CX - 1, CX, CX + 1]) ground[idx(x, y)] = G.ROAD;
-  for (let x = TOWN.x1 + 1; x < MAP; x++) for (const y of [CY - 1, CY, CY + 1]) ground[idx(x, y)] = G.ROAD;
+  for (let x = TOWN.x1 + 1; x < OVER; x++) for (const y of [CY - 1, CY, CY + 1]) ground[idx(x, y)] = G.ROAD;
   for (let x = 0; x < TOWN.x0; x++) for (const y of [CY - 1, CY, CY + 1]) ground[idx(x, y)] = G.ROAD;
   for (let y = TOWN.y0 + 1; y < TOWN.y1; y++) for (let x = TOWN.x0 + 1; x < TOWN.x1; x++) {
     const ax = Math.abs(x - CX), ay = Math.abs(y - CY);
@@ -123,9 +149,14 @@ export function buildWorld() {
   for (const [x, y] of [[70, 70], [106, 70], [70, 106], [106, 106], [80, 86], [96, 86], [80, 90], [96, 90], [84, 70], [92, 70], [110, 84], [110, 92], [66, 84], [66, 92], [84, 110], [92, 110]]) deco.push([R() < .5 ? 'tree_a' : 'tree_b', x + .5, y + .5]);
   for (const [k, x, y] of deco) { objects.push({ key: k, x, y }); if (k.startsWith('tree') || k === 'tent') block[idx(Math.floor(x), Math.floor(y))] = 1; }
 
+  // crypt entrance: a ruined watchtower over a stair hole, with a clear yard so the wilderness pass leaves it open
+  { const e = CRYPT_ENTRANCE; for (let y = e.y - 4; y <= e.y + 4; y++) for (let x = e.x - 4; x <= e.x + 4; x++) { ground[idx(x, y)] = Math.max(Math.abs(x - e.x), Math.abs(y - e.y)) <= 2 ? G.CRYPT : G.DIRT; block[idx(x, y)] = 0; }
+    objects.push({ key: 'tower', x: e.x - 1.5, y: e.y - 2 }, { key: 'rock_b', x: e.x + 2.5, y: e.y - 1.5 }, { key: 'rock_d', x: e.x - 2.5, y: e.y + 1.5 }, { key: 'flag', x: e.x + 1.5, y: e.y + 2.5 });
+    for (const [x, y] of [[e.x - 2, e.y - 2], [e.x - 1, e.y - 2], [e.x - 2, e.y - 3], [e.x - 1, e.y - 3], [e.x + 2, e.y - 2], [e.x - 3, e.y + 1]]) block[idx(x, y)] = 1; }
+
   // wilderness
-  const free = (x, y, r) => { for (let yy = y - r; yy <= y + r; yy++) for (let xx = x - r; xx <= x + r; xx++) { if (xx < 0 || yy < 0 || xx >= MAP || yy >= MAP) return false; if (block[idx(xx, yy)]) return false; const g = ground[idx(xx, yy)]; if (g === G.ROAD || g === G.WATER || g === G.BRIDGE || g === G.COBBLE) return false; } return true; };
-  for (let y = 2; y < MAP - 2; y++) for (let x = 2; x < MAP - 2; x++) {
+  const free = (x, y, r) => { for (let yy = y - r; yy <= y + r; yy++) for (let xx = x - r; xx <= x + r; xx++) { if (xx < 0 || yy < 0 || xx >= OVER || yy >= OVER) return false; if (Math.abs(xx - CRYPT_ENTRANCE.x) <= 5 && Math.abs(yy - CRYPT_ENTRANCE.y) <= 5) return false; if (block[idx(xx, yy)]) return false; const g = ground[idx(xx, yy)]; if (g === G.ROAD || g === G.WATER || g === G.BRIDGE || g === G.COBBLE) return false; } return true; };
+  for (let y = 2; y < OVER - 2; y++) for (let x = 2; x < OVER - 2; x++) {
     const d = Math.max(Math.abs(x + .5 - cx), Math.abs(y + .5 - cy)); if (d < 27) continue;
     const g = ground[idx(x, y)]; const r = R();
     let key = null, rad = 0;
@@ -134,12 +165,36 @@ export function buildWorld() {
     else if (g === G.GRASS) { if (r < .018) key = R() < .5 ? 'tree_a' : 'tree_b'; else if (r < .024) { key = 'trees_am'; rad = 1; } else if (r < .03) key = ['rock_a', 'rock_c'][Math.floor(R() * 2)]; }
     if (key && free(x, y, rad + 1)) { objects.push({ key, x: x + .5, y: y + .5 }); for (let yy = y - rad; yy <= y + rad; yy++) for (let xx = x - rad; xx <= x + rad; xx++) block[idx(xx, yy)] = 1; }
   }
-  for (let i = 0; i < MAP; i += 5) for (const [x, y] of [[i + 2, 1.5], [i + 2, MAP - 2], [1.5, i + 2], [MAP - 2, i + 2]]) objects.push({ key: (i / 5) % 3 === 0 ? 'mountain' : 'hills', x, y });
-  for (let i = 0; i < MAP; i++) { for (let k = 0; k < 3; k++) { block[idx(i, k)] = 1; block[idx(i, MAP - 1 - k)] = 1; block[idx(k, i)] = 1; block[idx(MAP - 1 - k, i)] = 1; } }
+  for (let i = 0; i < OVER; i += 5) for (const [x, y] of [[i + 2, 1.5], [i + 2, OVER - 2], [1.5, i + 2], [OVER - 2, i + 2]]) objects.push({ key: (i / 5) % 3 === 0 ? 'mountain' : 'hills', x, y });
+  for (let i = 0; i < OVER; i++) { for (let k = 0; k < 3; k++) { block[idx(i, k)] = 1; block[idx(i, OVER - 1 - k)] = 1; block[idx(k, i)] = 1; block[idx(OVER - 1 - k, i)] = 1; } }
   // orc-style camp in the badlands (boss_chief lair)
   for (const [k, x, y] of [['tent', 38, 38], ['tent', 42, 36.5], ['tent', 37, 43], ['lumber', 40, 41], ['barrel', 41.5, 39], ['flag', 39, 39]]) { objects.push({ key: k, x, y }); if (k === 'tent') block[idx(Math.floor(x), Math.floor(y))] = 1; }
 
+  // the catacombs: rooms joined by 3-wide L-shaped corridors, pillars in the bigger halls, bones and barrels for cover.
+  // Solid tiles that touch a floor tile become wall blocks (drawn by the client as raised stone).
+  const floor = (x, y) => { ground[idx(x, y)] = G.CRYPT; block[idx(x, y)] = 0; };
+  const rooms = CRYPT_ROOMS.map(([rx, ry, w, h]) => ({ x0: rx - (w >> 1), y0: ry - (h >> 1), x1: rx - (w >> 1) + w - 1, y1: ry - (h >> 1) + h - 1, cx: rx, cy: ry }));
+  for (const r of rooms) for (let y = r.y0; y <= r.y1; y++) for (let x = r.x0; x <= r.x1; x++) floor(x, y);
+  for (let i = 1; i < rooms.length; i++) { const a = rooms[i - 1], b = rooms[i];
+    for (let x = Math.min(a.cx, b.cx) - 1; x <= Math.max(a.cx, b.cx) + 1; x++) for (let k = -1; k <= 1; k++) floor(x, a.cy + k);
+    for (let y = Math.min(a.cy, b.cy) - 1; y <= Math.max(a.cy, b.cy) + 1; y++) for (let k = -1; k <= 1; k++) floor(b.cx + k, y); }
+  const cr = rng(4401);
+  for (const [i, r] of rooms.entries()) { if (i === 0) continue; const big = i === rooms.length - 1;
+    // pillars: four in each hall, a ring of six in the lord's chamber; never on the corridor mouths (centre lines)
+    const pts = big ? [[-6, -4], [6, -4], [-6, 4], [6, 4], [-8, 0], [8, 0]] : [[-3, -2], [3, -2], [-3, 2], [3, 2]];
+    for (const [dx, dy] of pts) { const x = r.cx + dx, y = r.cy + dy; block[idx(x, y)] = 1; objects.push({ key: 'cpillar', x: x + .5, y: y + .5 }); }
+    for (let k = 0; k < (big ? 0 : 3); k++) { const x = r.x0 + 1 + Math.floor(cr() * (r.x1 - r.x0 - 1)), y = r.y0 + 1 + Math.floor(cr() * (r.y1 - r.y0 - 1)); if (Math.abs(x - r.cx) <= 1 || Math.abs(y - r.cy) <= 1 || block[idx(x, y)]) continue;
+      const key = ['barrel', 'crate', 'rock_c', 'sack'][Math.floor(cr() * 4)]; objects.push({ key, x: x + .5, y: y + .5 }); block[idx(x, y)] = 1; }
+    for (let k = 0; k < 4; k++) objects.push({ key: 'cbones', x: r.x0 + 1 + cr() * (r.x1 - r.x0 - 1), y: r.y0 + 1 + cr() * (r.y1 - r.y0 - 1) }); }
+  for (let y = DUNGEON.y0 - 1; y <= DUNGEON.y1 + 1; y++) for (let x = DUNGEON.x0 - 1; x <= DUNGEON.x1 + 1; x++) {
+    if (ground[idx(x, y)] === G.CRYPT) continue; let touch = false;
+    for (let dy = -1; dy <= 1 && !touch; dy++) for (let dx = -1; dx <= 1; dx++) if (ground[idx(x + dx, y + dy)] === G.CRYPT) { touch = true; break; }
+    if (touch) objects.push({ key: 'cwall', x: x + .5, y: y + .5 }); }
+  // wall torches on the back (north) wall of every room — the client lights them at all times
+  for (const r of rooms) for (const x of [r.x0 + 1, r.x1 - 1]) objects.push({ key: 'ctorch', x: x + .5, y: r.y0 - .5 });
+
   for (let i = 0; i < N; i++) { if (ground[i] === G.WATER) block[i] = 1; monsterBlock[i] = block[i]; }
+  for (const p of PORTALS) monsterBlock[idx(p.x, p.y)] = 1;      // monsters never step onto (or follow you through) a portal
   for (let y = TOWN.y0; y <= TOWN.y1; y++) for (let x = TOWN.x0; x <= TOWN.x1; x++) monsterBlock[idx(x, y)] = 1;
 
   objects.sort((a, b) => (a.x + a.y) - (b.x + b.y));

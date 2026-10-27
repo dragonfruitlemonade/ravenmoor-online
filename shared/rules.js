@@ -17,6 +17,11 @@ export const ITEMS = {
   chiefAxe:    { name: '족장의 대도끼',   type: 'weapon', atk: 36, spd: .85, price: 3200, icon: 'axe2' },
   lichCrown:   { name: '리치의 왕관',     type: 'helmet', def: 7, atk: 4, price: 5000, icon: 'helmet' },
   lichStaff:   { name: '리치의 지팡이',   type: 'weapon', atk: 42, spd: 1.0, price: 5200, icon: 'staff' },
+  // catacomb gear: the lord's set drops only from 묘지기 군주 모르바스, the helm from the abyssal knights
+  wardenBlade: { name: '묘지기의 장검',   type: 'weapon', atk: 48, spd: 1.0, price: 6000, icon: 'sword2' },
+  wardenPlate: { name: '묘지기의 판금',   type: 'armor',  def: 22, price: 6400, icon: 'armor' },
+  wardenSeal:  { name: '군주의 인장',     type: 'ring',   atk: 5, def: 3, price: 4200, icon: 'ring' },
+  abyssHelm:   { name: '심연의 투구',     type: 'helmet', def: 6, price: 2200, icon: 'helmet' },
   // armour
   leatherArmor:{ name: '가죽 갑옷',    type: 'armor',  def: 4,  price: 150,  icon: 'armor' },
   chainMail:   { name: '사슬 갑옷',    type: 'armor',  def: 9,  price: 480,  icon: 'armor' },
@@ -55,6 +60,11 @@ export const DROPS = {
   boss_paladin: [['rustyIron', 1], ['soulGem', .6], ['paladinShield', .5], ['hpPotion', 1]],
   boss_chief:   [['soulGem', 1], ['chiefAxe', .5], ['cursedCloth', 1], ['hpPotion', 1]],
   boss_lich:    [['soulGem', 1], ['soulGem', 1], ['lichCrown', .5], ['lichStaff', .35], ['mpPotion', 1]],
+  crypt_ghoul:  [['bone', .6], ['cursedCloth', .3], ['hpPotion', .2]],
+  crypt_guard:  [['rustyIron', .5], ['cursedCloth', .35], ['soulGem', .08], ['plateArmor', .015]],
+  crypt_priest: [['soulGem', .22], ['mpPotion', .4], ['cursedCloth', .4]],
+  crypt_knight: [['soulGem', .2], ['rustyIron', .5], ['hpPotion', .4], ['abyssHelm', .04], ['battleAxe', .03]],
+  boss_crypt:   [['soulGem', 1], ['soulGem', 1], ['soulGem', .5], ['wardenBlade', .45], ['wardenPlate', .4], ['wardenSeal', .3], ['hpPotion', 1]],
 };
 
 // NPCs: where they stand, what they offer. Positions are tiles in front of their building doors.
@@ -133,6 +143,9 @@ export const QUESTS = [
   { id: 'd_rogue',  giver: 'guard_s1', daily: true, title: '현상금: 해골 도적', desc: '경비대가 매일 거는 현상금입니다. 해골 도적 12구를 처치하십시오. (매일 초기화)', type: 'kill', target: 'skel_rogue', n: 12, lvl: 4, reward: { gold: 260, exp: 360 } },
   { id: 'd_elite',  giver: 'knights',  daily: true, title: '현상금: 정예 사냥', desc: '기사단이 정예 몬스터 3마리의 목에 현상금을 걸었습니다. 금색 이름의 정예를 찾아 처치하십시오. (매일 초기화)', type: 'kill', target: 'elite', n: 3, lvl: 8, reward: { gold: 700, exp: 900, items: { hpPotion: 5 } } },
   { id: 'd_mage',   giver: 'magetower', daily: true, title: '현상금: 해골 마법사', desc: '이졸데가 해골 마법사 6구의 처치를 매일 의뢰합니다. (매일 초기화)', type: 'kill', target: 'skel_mage', n: 6, lvl: 13, reward: { gold: 900, exp: 1500, items: { mpPotion: 4 } } },
+  { id: 'crypt1',   giver: 'chapel',   title: '지하 묘지의 굶주린 자들', desc: '사제 안셀은 남서쪽 폐허 탑 아래 지하 묘지에서 구울이 올라온다고 합니다. 묘지 구울 10구를 처치하십시오.', type: 'kill', target: 'crypt_ghoul', n: 10, lvl: 14, reward: { gold: 1100, exp: 2800, items: { hpPotion: 5 } } },
+  { id: 'crypt2',   giver: 'knights',  title: '심연의 기사들',   desc: '지하 묘지 3층에서 심연의 기사들이 군주를 지킵니다. 8구를 쓰러뜨려 길을 여십시오.', type: 'kill', target: 'crypt_knight', n: 8, lvl: 22, reward: { gold: 2600, exp: 7000 } },
+  { id: 'cryptlord', giver: 'knights', title: '묘지기 군주',     desc: '지하 묘지 가장 깊은 방의 묘지기 군주 모르바스를 쓰러뜨리십시오. 파티를 꾸려 가는 것이 좋습니다.', type: 'kill', target: 'boss_crypt', n: 1, lvl: 26, reward: { gold: 7000, exp: 16000, items: { soulGem: 4 } } },
   { id: 'lich',     giver: 'magetower', title: '리치 왕',        desc: '남서쪽 늪지에 잠든 리치 왕이 깨어났습니다. 레이븐무어의 운명이 걸려 있습니다.', type: 'kill', target: 'boss_lich', n: 1, lvl: 22, reward: { gold: 4000, exp: 9000, items: { soulGem: 3 } } },
 ];
 
