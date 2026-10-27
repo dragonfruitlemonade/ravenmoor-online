@@ -52,7 +52,7 @@ A.send({ t: 'buy', npc: 'smith', item: 'longSword' }); await sleep(250); check(A
 
 // safe zone and PK
 A.send({ t: 'attack', id: B.id }); await sleep(300); check(A.said('마을 안에서는'), 'attacking inside town is refused');
-A.send({ t: 'move', x: 88.5, y: 118.5 }); B.send({ t: 'move', x: 89.5, y: 118.5 }); await sleep(8000);
+A.send({ t: 'move', x: 88.5, y: 118.5 }); B.send({ t: 'move', x: 89.5, y: 118.5 }); for (let i = 0; i < 24 && !(A.pos() && A.pos()[1] > 114 && B.pos() && B.pos()[1] > 114); i++) await sleep(500);   // ~34 tiles: about 8 s
 const pa = A.pos(); check(pa && pa[1] > 114, `walked out through the south gate (y=${pa && pa[1]})`);
 A.send({ t: 'attack', id: B.id }); await sleep(300); check(A.said('미만의 모험가'), 'newcomers below level 6 are protected from PK');
 A.send({ t: 'chat', msg: '/레벨 6' }); await sleep(600); A.send({ t: 'chat', msg: '/레벨 6 도적베스' }); await sleep(600);
@@ -235,6 +235,34 @@ A.send({ t: 'chat', msg: '/습격' }); await sleep(600); check(A.said('이미 �
   check(war && (A.ents.get(war[0])?.[6] & 64) && A.me[2] >= g0 + 15, `challenge taunts the monster (status ${war && A.ents.get(war[0])?.[6]}) and adds grit (${g0} -> ${A.me[2]})`);
   check(await waitEv(e => e.k === 'dmg' && e.a === war?.[0] && e.b === A.id, 4000), 'the taunted monster attacks the taunter');
   A.send({ t: 'attack', id: war?.[0] }); for (let i = 0; i < 30 && !A.evs.some(e => e.k === 'die' && e.id === war?.[0]); i++) await sleep(300);
+}
+// talents: points from level 10, tier gates, effects on stats and skills, saved with the character, reset in town, trimmed on level loss
+{
+  const RL = await import('../shared/rules.js'); let tal = null; A.ws.addEventListener('message', ev => { const m = JSON.parse(ev.data); if (m.t === 'talents') tal = m; });
+  check(RL.talentPoints(9) === 0 && RL.talentPoints(10) === 1 && RL.talentPoints(30) === 11 && RL.talentPoints(60) === 21, 'talent points: one per two levels from 10, capped at 21');
+  A.send({ t: 'chat', msg: '/레벨 30' }); await sleep(900); const def0 = A.me[9], hp0 = A.me[1];
+  A.send({ t: 'talent', id: 'k_unyield' }); await sleep(250); check(A.said('9점을 먼저'), 'capstone is locked until 9 points are in its tree');
+  A.send({ t: 'talent', id: 'm_flame' }); await sleep(250); check(A.said('이 직업의 특성이 아닙니다'), "another class's talent is refused");
+  for (const id of ['k_plate', 'k_plate', 'k_plate', 'k_will', 'k_will', 'k_will', 'k_bashm', 'k_bashm']) { A.send({ t: 'talent', id }); await sleep(120); }
+  await sleep(600);
+  check(tal && tal.talents.k_plate === 3 && tal.talents.k_bashm === 2 && tal.points === 11, `talents learned and sent back (${tal && JSON.stringify(tal.talents)})`);
+  check(A.me[9] >= Math.round(def0 * 1.1) && A.me[1] >= Math.round(hp0 * 1.08), `두꺼운 갑주·굳은 의지 raise defence ${def0} -> ${A.me[9]} and max HP ${hp0} -> ${A.me[1]}`);
+  A.send({ t: 'talent', id: 'k_bashm' }); await sleep(250); check(A.said('이미 최대로'), 'a talent cannot go past its max rank');
+  // 방패 숙련 2/2: bash cooldown 8 s -> 6 s (fight a summoned skeleton to have a target and grit)
+  for (let i = 0; i < 140 && A.me[25] && A.me[25].challenge; i++) await sleep(100);   // 도전의 함성 may still be cooling down from the combat checks
+  A.send({ t: 'chat', msg: '/몬스터 skel_warrior' }); await sleep(700); A.send({ t: 'cast', id: 'challenge' }); await sleep(1500); A.send({ t: 'cast', id: 'bash' }); await sleep(400);   // the taunted skeleton walks into reach first
+  const bcd = A.me[25] && A.me[25].bash; check(bcd > 5000 && bcd <= 6000, `방패 숙련 shortens 방패 강타's cooldown to 6 s (${bcd} ms left)`);
+  // reset only in town, and it costs gold
+  A.send({ t: 'talentReset' }); await sleep(250); check(A.said('마을 안에서만'), 'talent reset is refused outside town');
+  // saved with the character: reconnect and the picks come back
+  A.ws.close(); await sleep(1200); A = bot(r5.token); tal = null; A.ws.addEventListener('message', ev => { const m = JSON.parse(ev.data); if (m.t === 'talents') tal = m; }); await A.ready; await sleep(1200);
+  check(A.me[11] === 'paladin', `an advanced class survives logging out and back in (${A.me[11]})`);
+  check(tal && tal.talents.k_will === 3 && tal.talents.k_bashm === 2, `talents are saved and restored on login (${tal && JSON.stringify(tal.talents)})`);
+  const gT = A.inv.gold; A.send({ t: 'chat', msg: '/레벨 30' }); await sleep(700); A.send({ t: 'talentReset' }); await sleep(500);
+  check(tal && !Object.keys(tal.talents).length && A.inv.gold === gT - RL.talentResetCost(30), `reset in town clears every talent for ${RL.talentResetCost(30)} G (${gT} -> ${A.inv.gold})`);
+  for (const id of ['k_edge', 'k_edge', 'k_fury']) { A.send({ t: 'talent', id }); await sleep(150); }
+  A.send({ t: 'chat', msg: '/레벨 11' }); await sleep(900);
+  check(A.said('특성 점수가 줄어') && tal && !Object.keys(tal.talents).length, 'losing levels below the points spent clears talents');
 }
 const health = await (await fetch(`http://127.0.0.1:${PORT}/health`)).json();
 check(health.players === 2 && health.monsters > 90, `health ${JSON.stringify(health)}`);

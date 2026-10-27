@@ -2,7 +2,7 @@
 // clients only send intentions (move / attack / use item / buy ...).
 import { MAP, OVER, TOWN, SPAWN, CX, CY, GATES, VIEW_RADIUS, TICK_HZ, SNAP_HZ, MONSTERS, LOOKS, DUNGEON, buildWorld, isSafe, portalAt, findPath, expNeed, dirOf, rng } from '../shared/world.js';
 import { TITLES, TITLE_BY, titleName, ITEMS, SLOTS, INV_SIZE, DROPS, NPCS, CLASSES, CLASS_LEVEL, ADV, ADV_LEVEL, ADV_OF, classInfo, statsFor, itemStats, ENH_RATE, enhCost, sellPrice, itemName, BANK_SIZE, QUESTS,
-  SKILLS, GCD, RESOURCES, MAX_CUTS, resourceOf, skillsFor, skillRange } from '../shared/rules.js';
+  SKILLS, GCD, RESOURCES, MAX_CUTS, resourceOf, skillsFor, skillRange, TALENT_BY, talentPoints, talentBlock, talentMods, spentTotal, talentResetCost, effSkill, baseClass } from '../shared/rules.js';
 import { accountForToken, loadCharacter, saveCharacter } from './db.js';
 import { createSocial } from './social.js';
 import { adminCommand, logEvent, banInfo, isAdmin } from './admin.js';
@@ -104,6 +104,20 @@ function addItem(p, it) {
 function takeItem(p, id, n = 1) { const s = p.inv.find(x => x.id === id); if (!s || s.n < n) return false; s.n -= n; if (s.n <= 0) p.inv.splice(p.inv.indexOf(s), 1); return true; }
 const countItem = (p, id) => p.inv.filter(x => x.id === id).reduce((a, x) => a + x.n, 0);
 function invChanged(p) { p.invDirty = true; p.saveDirty = true; }
+// talents go to the client whenever class, level or the picks change (checked on every snapshot round; cheap string compare)
+const talentKey = p => `${p.cls}|${p.level}|${JSON.stringify(p.talents || {})}`;
+function sendTalents(p) { p.talentsSent = talentKey(p); sendTo(p, { t: 'talents', talents: p.talents || {}, points: talentPoints(p.level), reset: talentResetCost(p.level) }); }
+function learnTalent(p, id) {
+  const why = talentBlock(p.cls, p.level, p.talents, id); if (why) return sys(p, why);
+  p.talents[id] = (p.talents[id] || 0) + 1; applyStats(p); p.saveDirty = true;
+  const t = TALENT_BY[id]; sys(p, `특성 「${t.name}」 ${p.talents[id]}/${t.max}`);
+}
+function resetTalents(p) {
+  if (!Object.keys(p.talents).length) return sys(p, '초기화할 특성이 없습니다.');
+  if (!isSafe(p.x, p.y)) return sys(p, '특성 초기화는 마을 안에서만 할 수 있습니다.');
+  const cost = talentResetCost(p.level); if (p.gold < cost) return sys(p, `금화 ${cost}이(가) 필요합니다.`);
+  p.gold -= cost; p.talents = {}; applyStats(p); invChanged(p); sys(p, `금화 ${cost}을(를) 내고 특성을 초기화했습니다.`);
+}
 function sendInv(p) { p.invDirty = false; sendTo(p, { t: 'inv', inv: p.inv, equip: p.equip, gold: p.gold }); }
 
 // ── player stats
@@ -113,13 +127,20 @@ function applyStats(p, heal) {
   for (const slot of SLOTS) { const it = p.equip[slot]; if (!it) continue; const st = itemStats(it); atk += st.atk; def += st.def; if (st.spd) spd = st.spd; }
   const bless = p.fx && p.fx.bless > now() ? 1.25 : 1;
   p.res = resourceOf(p.cls);
-  p.maxHp = s.maxHp; p.maxMp = RESOURCES[p.res].max || s.maxMp; p.atk = Math.round(atk * bless); p.def = Math.round(def * bless);
-  p.atkSpeed = Math.round(900 / spd / (c.aspd || 1)); p.dmgMul = c.dmg || 1; p.threatMul = c.threat || 1;
+  // talents: drop anything that no longer fits (another class's talent, or fewer points after a level change), then add up the effects
+  p.talents = p.talents || {}; for (const [id, r] of Object.entries(p.talents)) if (!TALENT_BY[id] || TALENT_BY[id].cls !== baseClass(p.cls) || !(r > 0)) delete p.talents[id]; else p.talents[id] = Math.min(r, TALENT_BY[id].max);
+  if (spentTotal(p.talents) > talentPoints(p.level)) { p.talents = {}; if (p.client) sys(p, '특성 점수가 줄어 특성을 초기화했습니다.'); }
+  const tm = p.tm = talentMods(p.talents);
+  p.maxHp = Math.round(s.maxHp * (1 + (tm.hpPct || 0))); p.maxMp = RESOURCES[p.res].max || s.maxMp;
+  p.atk = Math.round(atk * bless * (1 + (tm.atkPct || 0))); p.def = Math.round(def * bless * (1 + (tm.defPct || 0)));
+  p.atkSpeed = Math.round(900 / spd / (c.aspd || 1) / (1 + (tm.haste || 0))); p.dmgMul = c.dmg || 1; p.threatMul = (c.threat || 1) * Math.max(.2, 1 + (tm.threat || 0));
+  p.speed = 4.2 * (1 + (tm.speedPct || 0));
   p.ranged = !!c.ranged || p.look === 'mage' && p.cls === 'commoner'; p.range = c.ranged || (p.ranged ? 4.5 : 1.45);
   if (heal) { p.hp = p.maxHp; p.mp = p.res === 'grit' ? 0 : p.maxMp; p.cuts = 0; } else { p.hp = Math.min(p.hp, p.maxHp); p.mp = Math.min(p.mp, p.maxMp); }
 }
 const resName = p => RESOURCES[p.res || 'mana'].name;
-const gainRes = (p, n) => { if (isPlayer(p)) p.mp = Math.min(p.maxMp, p.mp + n); };
+const gainRes = (p, n) => { if (isPlayer(p)) p.mp = Math.min(p.maxMp, p.mp + n * (1 + ((p.tm && p.tm.resGain) || 0))); };
+const tmOf = e => (isPlayer(e) && e.tm) || {};
 
 // ── movement
 function setPath(e, tx, ty) { const blk = isMonster(e) ? W.monsterBlock : W.block; const p = findPath(blk, Math.floor(e.x), Math.floor(e.y), Math.floor(tx), Math.floor(ty)); e.path = p && p.length ? p : null; return !!e.path; }
@@ -133,21 +154,31 @@ function step(e, dt) {
 const face = (e, t) => { e.dir = dirOf(t.x - e.x, t.y - e.y); };
 
 // ── combat
-function rollDamage(a, b, mul = 1) { const crit = R() < .1; let d = a.atk * (a.dmgMul || 1) * (a.fx && a.fx.rage > now() ? 1.3 : 1) * mul * (0.85 + R() * .3) - b.def * .6; if (crit) d *= 1.6; return [Math.max(1, Math.round(d)), crit]; }
+function rollDamage(a, b, mul = 1) {
+  const tm = tmOf(a); const crit = R() < .1 + (tm.crit || 0);
+  if (tm.executeBelow && b.hp <= b.maxHp * tm.executeBelow) mul *= 1 + tm.executeMul;   // 처형자: finish off weakened foes
+  let d = a.atk * (a.dmgMul || 1) * (a.fx && a.fx.rage > now() ? 1.3 : 1) * mul * (0.85 + R() * .3) - b.def * .6; if (crit) d *= 1.6; return [Math.max(1, Math.round(d)), crit];
+}
 function attack(a, b) {
   a.cd = now() + a.atkSpeed; face(a, b);
   broadcastNear(a.x, a.y, { t: 'ev', k: 'atk', a: a.id, b: b.id, r: a.ranged ? 1 : 0 });
   const delay = a.ranged ? 120 + dist(a, b) * 60 : 220;
-  setTimeout(() => { if (!canFight(a, b)) return; if (!a.ranged && dist(a, b) > a.range + 1) return; const [d, c] = rollDamage(a, b); damage(b, d, a, c); }, delay);
+  const swing = () => { if (!canFight(a, b)) return; if (!a.ranged && dist(a, b) > a.range + 1) return; const [d, c] = rollDamage(a, b); damage(b, d, a, c); };
+  setTimeout(swing, delay);
+  const ds = tmOf(a).doubleStrike; if (ds && R() < ds) setTimeout(() => { broadcastNear(a.x, a.y, { t: 'ev', k: 'atk', a: a.id, b: b.id, r: a.ranged ? 1 : 0 }); swing(); }, delay + 180);   // 연속 공격
 }
 // thr: extra threat multiplier for this hit (tank skills); the attacker's class multiplier applies on top
 function damage(b, dmg, a, crit, thr = 1) {
   if (b.dead) return;
-  if (b.fx && b.fx.bulwark > now()) dmg = Math.max(1, Math.round(dmg * .6));
+  const btm = tmOf(b);
+  if (btm.dodge && a && R() < btm.dodge) { b.combatT = now(); broadcastNear(b.x, b.y, { t: 'ev', k: 'dmg', b: b.id, v: 0, a: a.id, miss: 1 }); return; }   // 받아넘기기·날렵함·은총
+  if (b.fx && b.fx.bulwark > now()) dmg = Math.max(1, Math.round(dmg * (1 - (b.bulwarkReduce || .4))));
+  if (b.fx && b.fx.shroud > now()) dmg = Math.max(1, Math.round(dmg * .5));
   let ab = 0; if (b.shield > 0 && b.shieldT > now()) { ab = Math.min(b.shield, dmg); b.shield -= ab; dmg -= ab; }
   b.hp -= dmg; b.combatT = now(); if (a) a.combatT = now();
   broadcastNear(b.x, b.y, { t: 'ev', k: 'dmg', b: b.id, v: dmg, c: crit ? 1 : 0, a: a ? a.id : 0, ab });
   if (isMonster(b) && isPlayer(a)) addThreat(b, a, (dmg + ab) * (a.threatMul || 1) * thr);
+  const ls = tmOf(a).lifesteal; if (ls && dmg > 0 && !a.dead) a.hp = Math.min(a.maxHp, a.hp + dmg * ls);   // 피의 맛 / 피의 갈증 / 정의의 흡수
   if (isMonster(b) && (!b.target || !ents.has(b.target.id))) b.target = a;
   if (isPlayer(a) && a.res === 'grit') gainRes(a, 4);
   if (isPlayer(b) && b.res === 'grit') gainRes(b, 3 + Math.round((dmg + ab) / b.maxHp * 60));
@@ -192,10 +223,10 @@ function kill(b, a) {
   }
 }
 function gainExp(p, n) {
-  p.exp += n; let up = false; if (n > 0) sendTo(p, { t: 'ev', k: 'xp', id: p.id, v: Math.round(n) });
+  p.exp += n; let up = false; if (n > 0) sendTo(p, { t: 'ev', k: 'xp', id: p.id, v: Math.round(n) }); const pts0 = talentPoints(p.level);
   while (p.exp >= expNeed(p.level)) { p.exp -= expNeed(p.level); p.level++; up = true; }
   p.saveDirty = true;
-  if (up) { applyStats(p, true); bump(p); checkTitles(p); broadcastNear(p.x, p.y, { t: 'ev', k: 'lvl', id: p.id, lv: p.level }); sys(p, `레벨 ${p.level} 달성!` + (p.level >= CLASS_LEVEL && p.cls === 'commoner' ? ' 이제 전직할 수 있습니다. 기사단·마법사 탑·예배당·여관의 스승을 찾아가세요.' : p.level >= ADV_LEVEL && CLASSES[p.cls] && ADV_OF[p.cls] ? ' 스승에게 돌아가면 승급(2차 전직)할 수 있습니다.' : '')); }
+  if (up) { applyStats(p, true); bump(p); checkTitles(p); broadcastNear(p.x, p.y, { t: 'ev', k: 'lvl', id: p.id, lv: p.level }); sys(p, `레벨 ${p.level} 달성!` + (p.level >= CLASS_LEVEL && p.cls === 'commoner' ? ' 이제 전직할 수 있습니다. 기사단·마법사 탑·예배당·여관의 스승을 찾아가세요.' : p.level >= ADV_LEVEL && CLASSES[p.cls] && ADV_OF[p.cls] ? ' 스승에게 돌아가면 승급(2차 전직)할 수 있습니다.' : '') + (talentPoints(p.level) > pts0 ? ' 특성 점수를 얻었습니다 (T 키).' : '')); }
 }
 
 // ── skills: one entry point for every class skill (see SKILLS in shared/rules.js). Costs, cooldowns, the global cooldown,
@@ -204,6 +235,7 @@ function gainExp(p, n) {
 function addThreat(m, p, n) { if (!m.threat) m.threat = new Map(); m.threat.set(p.id, (m.threat.get(p.id) || 0) + n); }
 function healThreat(healer, target, amount) { for (const m of near(target.x, target.y, 14, isMonster)) if (m.threat && m.threat.has(target.id)) addThreat(m, healer, amount * .5); }
 function healUnit(healer, t, amount) {
+  amount *= (1 + (tmOf(healer).healPower || 0)) * (1 + (tmOf(t).healTaken || 0));
   const h = Math.min(Math.round(amount), t.maxHp - Math.ceil(t.hp)); t.hp = Math.min(t.maxHp, t.hp + Math.round(amount));
   broadcastNear(t.x, t.y, { t: 'ev', k: 'fx', fx: 'heal', id: t.id, v: Math.round(amount) }); if (h > 0) healThreat(healer, t, h);
 }
@@ -223,14 +255,14 @@ function enemyTarget(p, s, tid) {
   return t;
 }
 function trySkill(p, id, tid) {
-  const s = SKILLS[id]; if (!s || !skillsFor(p.cls).includes(id)) return;
+  if (!SKILLS[id] || !skillsFor(p.cls).includes(id)) return; const s = effSkill(id, p.tm);
   const friendly = s.target === 'self' || s.target === 'ally';
   if (!friendly && isSafe(p.x, p.y)) return sys(p, '성내에서는 기술을 쓸 수 없습니다.');
   if (p.casting) return sys(p, '이미 주문을 외우는 중입니다.');
   if (p.stunT > now()) return;
   if (!s.offGcd && now() < (p.gcd || 0)) return;
   if ((p.cds[id] || 0) > now()) return sys(p, `${s.name}이(가) 아직 준비되지 않았습니다.`);
-  if (p.mp < s.cost) return sys(p, `${resName(p)}이(가) 부족합니다.`);
+  if (p.mp < s.cost && !p.freeNext) return sys(p, `${resName(p)}이(가) 부족합니다.`);
   if (s.finisher && !p.cuts) return sys(p, '칼자국이 없습니다. 먼저 칼질로 칼자국을 내세요.');
   let t = null;
   if (s.target === 'self') t = p; else if (s.target === 'ally') t = allyTarget(p, s, tid);
@@ -238,42 +270,49 @@ function trySkill(p, id, tid) {
   if (!s.offGcd) p.gcd = now() + GCD;
   if (s.cast) {
     // casting: stand still; moving, being stunned or interrupted cancels it. Cost and cooldown are paid when it completes.
-    p.casting = { id, tid: t ? t.id : 0, until: now() + s.cast }; p.path = null; p.amove = null;
+    p.casting = { id, tid: t ? t.id : 0, until: now() + s.cast, total: s.cast }; p.path = null; p.amove = null;
     broadcastNear(p.x, p.y, { t: 'ev', k: 'cast', id: p.id, s: id, ms: s.cast }); return;
   }
   execSkill(p, id, t);
 }
 function finishCast(p) {
-  const c = p.casting; p.casting = null; const s = SKILLS[c.id]; let t = c.tid ? ents.get(c.tid) : null;
-  const ok = p.mp >= s.cost && (s.target === 'self' || s.target === 'ally' ? (t && !t.dead) : (t && canFight(p, t) && dist(p, t) <= skillRange(s, p.range) + 1));
+  const c = p.casting; p.casting = null; const s = effSkill(c.id, p.tm); let t = c.tid ? ents.get(c.tid) : null;
+  const ok = (p.mp >= s.cost || p.freeNext) && (s.target === 'self' || s.target === 'ally' ? (t && !t.dead) : (t && canFight(p, t) && dist(p, t) <= skillRange(s, p.range) + 1));
   broadcastNear(p.x, p.y, { t: 'ev', k: 'castend', id: p.id, cut: ok ? 0 : 1 });
   if (!ok) { if (s.target === 'ally' && (!t || t.dead)) t = p; else return sys(p, '주문이 대상에 닿지 않았습니다.'); }
   execSkill(p, c.id, t);
 }
 function execSkill(p, id, t) {
-  const s = SKILLS[id]; p.mp -= s.cost; if (s.cd) p.cds[id] = now() + s.cd; p.combatT = s.target === 'self' || s.target === 'ally' ? p.combatT : now();
+  const s = effSkill(id, p.tm), tm = p.tm || {};
+  // 마력 순환 / 축복받은 손: a lucky cast makes the next one free
+  if (p.freeNext && s.cost) p.freeNext = false; else p.mp -= s.cost;
+  if (s.cost && tm.clearcast && R() < tm.clearcast) { p.freeNext = true; broadcastNear(p.x, p.y, { t: 'ev', k: 'fx', fx: 'clear', id: p.id }); }
+  if (s.cd) p.cds[id] = now() + s.cd; p.combatT = s.target === 'self' || s.target === 'ally' ? p.combatT : now();
   if (s.gain) gainRes(p, s.gain);
-  const hit = (e, mul, crit) => { let [d, c] = rollDamage(p, e, mul); if (crit && !c) { d = Math.round(d * 1.6); c = true; } damage(e, d, p, c, s.threat || 1); return d; };
+  const hit = (e, mul, crit) => { let [d, c] = rollDamage(p, e, mul); if (crit && !c) { d = Math.round(d * 1.6); c = true; } damage(e, d, p, c, s.threat || 1); return c; };
   const aoeAround = (x, y, r) => near(x, y, r + .5, e => canFight(p, e)).filter(e => Math.hypot(e.x - x, e.y - y) <= r);
   if (t && t !== p && !s.aoeAt) broadcastNear(p.x, p.y, { t: 'ev', k: 'atk', a: p.id, b: t.id, r: s.proj ? 1 : 0 });
   else if (!t) broadcastNear(p.x, p.y, { t: 'ev', k: 'atk', a: p.id, b: 0, r: 0 });
   // single target strike (+ stun / interrupt / bleed / combo points)
   if (s.mul && t && t !== p && !s.aoeAt && !s.chain && !s.hits) {
-    const mul = s.finisher ? s.mul + s.perCut * p.cuts : s.mul; if (s.finisher) p.cuts = 0;
+    let mul = s.finisher ? s.mul + s.perCut * p.cuts : s.mul; if (s.finisher) p.cuts = 0;
+    if (s.execBelow && t.hp <= t.maxHp * s.execBelow) mul *= 1 + s.execMul;   // 마무리
     if (s.interrupt) interrupt(t);
     hit(t, mul);
     if (s.stun && !t.dead) { t.stunT = now() + s.stun; t.path = null; if (t.casting) cancelCast(t, true); broadcastNear(t.x, t.y, { t: 'ev', k: 'fx', fx: 'stun', id: t.id }); }
     if (s.bleed && !t.dead) { t.fx.bleed = now() + s.bleed; t.bleedBy = p; broadcastNear(t.x, t.y, { t: 'ev', k: 'fx', fx: 'bleed', id: t.id }); }
   }
-  if (s.cuts) p.cuts = Math.min(MAX_CUTS, (p.cuts || 0) + s.cuts);
+  if (s.cuts) p.cuts = Math.min(MAX_CUTS, (p.cuts || 0) + s.cuts + (s.extraCut && R() < s.extraCut ? 1 : 0));
   // fireball-style: projectile, then a blast around the target
-  if (s.aoeAt && t) { const tx = t.x, ty = t.y; broadcastNear(p.x, p.y, { t: 'ev', k: 'atk', a: p.id, b: t.id, r: 1 }); setTimeout(() => { broadcastNear(tx, ty, { t: 'ev', k: 'fx', fx: 'fire', x: tx, y: ty }); for (const e of aoeAround(tx, ty, s.aoeAt)) hit(e, s.mul); }, 120 + dist(p, t) * 60); }
+  if (s.aoeAt && t) { const tx = t.x, ty = t.y; broadcastNear(p.x, p.y, { t: 'ev', k: 'atk', a: p.id, b: t.id, r: 1 }); setTimeout(() => { broadcastNear(tx, ty, { t: 'ev', k: 'fx', fx: 'fire', x: tx, y: ty }); let crit = false; for (const e of aoeAround(tx, ty, s.aoeAt)) crit = hit(e, s.mul) || crit;
+    if (crit && tm.fireReset) { p.cds[id] = 0; broadcastNear(p.x, p.y, { t: 'ev', k: 'fx', fx: 'clear', id: p.id }); } }, 120 + dist(p, t) * 60); }   // 화염 폭주
   // around yourself: damage, slow, taunt
   if (s.aoe) {
     broadcastNear(p.x, p.y, { t: 'ev', k: 'fx', fx: s.slow ? 'frost' : s.taunt ? 'taunt' : s.selfHeal ? 'holy' : 'slam', id: p.id, x: p.x, y: p.y, r: s.aoe });
     for (const e of aoeAround(p.x, p.y, s.aoe)) {
       if (s.mul) hit(e, s.mul);
       if (s.slow && !e.dead) e.fx.slow = now() + s.slow;
+      if (s.stun && !e.dead) { e.stunT = now() + s.stun; e.path = null; if (isMonster(e) && e.cast) interrupt(e); broadcastNear(e.x, e.y, { t: 'ev', k: 'fx', fx: 'stun', id: e.id }); }   // 영원한 겨울
       if (s.taunt && isMonster(e) && !e.dead) { let top = 0; if (e.threat) for (const v of e.threat.values()) top = Math.max(top, v); e.threat = e.threat || new Map(); e.threat.set(p.id, top * 1.1 + 50); e.tauntBy = p; e.tauntUntil = now() + s.taunt; e.target = p; }
     }
   }
@@ -281,11 +320,14 @@ function execSkill(p, id, t) {
     seq.forEach((e, i) => setTimeout(() => { if (!canFight(p, e)) return; hit(e, s.mul, false); broadcastNear(e.x, e.y, { t: 'ev', k: 'fx', fx: 'chain', id: e.id, from: i ? seq[i - 1].id : p.id }); }, i * 130)); }
   if (s.hits && t) for (let i = 0; i < s.hits; i++) setTimeout(() => { if (!canFight(p, t) || dist(p, t) > 2.2) return; p.atkT = now(); broadcastNear(p.x, p.y, { t: 'ev', k: 'atk', a: p.id, b: t.id, r: 0 }); hit(t, s.mul, i === s.hits - 1); }, i * 220);
   if (s.heal && t) healUnit(p, t, t.maxHp * s.heal);
+  const party = social.partyOf(p);
+  if (id === 'mend' && t && tm.mendSplash && party) for (const mm of party.members) if (mm !== t && !mm.dead && dist(mm, t) <= 4) healUnit(p, mm, mm.maxHp * s.heal * tm.mendSplash);   // 기적
   if (s.selfHeal) healUnit(p, p, p.maxHp * s.selfHeal);
   if (s.shield && t) { t.shield = Math.round(t.maxHp * s.shield); t.shieldT = now() + s.dur; broadcastNear(t.x, t.y, { t: 'ev', k: 'fx', fx: 'shield', id: t.id }); if (t !== p) healThreat(p, t, t.shield * .5); }
-  if (s.buff === 'bulwark') { p.fx.bulwark = now() + s.dur; broadcastNear(p.x, p.y, { t: 'ev', k: 'fx', fx: 'shield', id: p.id }); }
+  if (s.buff === 'bulwark') { p.fx.bulwark = now() + s.dur; p.bulwarkReduce = .4 + (s.reduce || 0); broadcastNear(p.x, p.y, { t: 'ev', k: 'fx', fx: 'shield', id: p.id });
+    if (tm.bulwarkShield && party) for (const mm of party.members) if (mm !== p && !mm.dead && dist(mm, p) <= 6) { mm.shield = Math.round(mm.maxHp * tm.bulwarkShield); mm.shieldT = now() + s.dur; broadcastNear(mm.x, mm.y, { t: 'ev', k: 'fx', fx: 'shield', id: mm.id }); } }   // 희생
   if (s.buff === 'bless') { p.fx.bless = now() + s.dur; applyStats(p); broadcastNear(p.x, p.y, { t: 'ev', k: 'fx', fx: 'holy', x: p.x, y: p.y }); setTimeout(() => { if (!p.dead) applyStats(p); }, s.dur + 100); }
-  if (s.vanish) { for (const m of near(p.x, p.y, s.vanish, isMonster)) { if (m.threat) m.threat.delete(p.id); if (m.target === p) m.target = null; if (m.tauntBy === p) m.tauntBy = null; } p.engaged = false; p.target = null; broadcastNear(p.x, p.y, { t: 'ev', k: 'fx', fx: 'smoke', id: p.id, x: p.x, y: p.y }); }
+  if (s.vanish) { for (const m of near(p.x, p.y, s.vanish, isMonster)) { if (m.threat) m.threat.delete(p.id); if (m.target === p) m.target = null; if (m.tauntBy === p) m.tauntBy = null; } p.engaged = false; p.target = null; broadcastNear(p.x, p.y, { t: 'ev', k: 'fx', fx: 'smoke', id: p.id, x: p.x, y: p.y }); if (tm.shroud) p.fx.shroud = now() + tm.shroud; }   // 그림자 망토
 }
 
 // ── NPC services
@@ -437,10 +479,11 @@ function playerTick(p, dt) {
   if (p.dead) { if (now() >= p.respawnAt) { p.dead = false; p.x = SPAWN.x + (R() - .5) * 2; p.y = SPAWN.y + (R() - .5) * 2; applyStats(p, true); bump(p); } return; }
   // class resources: grit drains and 칼자국 fade once you've been out of combat for 6 s; breath always refills fast
   const idle = now() - (p.combatT || 0) > 6000;
-  if (p.res === 'grit' && idle) p.mp = Math.max(0, p.mp - 6 * dt); else if (p.res === 'breath') p.mp = Math.min(p.maxMp, p.mp + 14 * dt);
+  const rg = 1 + ((p.tm && p.tm.regen) || 0);
+  if (p.res === 'grit' && idle) p.mp = Math.max(0, p.mp - 6 * dt); else if (p.res === 'breath') p.mp = Math.min(p.maxMp, p.mp + 14 * dt * (1 + ((p.tm && p.tm.resGain) || 0)));
   if (idle && p.cuts) p.cuts = 0;
   if (p.stunT > now()) { if (p.casting) cancelCast(p, true); p.moving = false; return; }
-  if (idle && (p.hp < p.maxHp || (p.res === 'mana' && p.mp < p.maxMp))) { const town = isSafe(p.x, p.y) ? 2 : 1; p.hp = Math.min(p.maxHp, p.hp + p.maxHp * .015 * town * dt); if (p.res === 'mana') p.mp = Math.min(p.maxMp, p.mp + p.maxMp * .02 * town * dt); }
+  if (idle && (p.hp < p.maxHp || (p.res === 'mana' && p.mp < p.maxMp))) { const town = (isSafe(p.x, p.y) ? 2 : 1) * rg; p.hp = Math.min(p.maxHp, p.hp + p.maxHp * .015 * town * dt); if (p.res === 'mana') p.mp = Math.min(p.maxMp, p.mp + p.maxMp * .02 * town * dt); }
   // casting: stand still and don't swing; the spell lands when the bar fills
   if (p.casting) { p.moving = false; if (now() >= p.casting.until) finishCast(p); return; }
   if (p.pick) { const d = ents.get(p.pick); if (!d) p.pick = 0; else if (dist(p, d) <= 1.2) { p.pick = 0; p.path = null; tryPick(p, d); } else if (!p.path) { setPath(p, d.x, d.y); if (!p.path) p.pick = 0; } }
@@ -465,11 +508,11 @@ function playerTick(p, dt) {
     sys(p, pt.msg); if (pt.x < OVER && p.level < 14) sys(p, '⚠ 지하 묘지의 망자들은 14레벨 이상에게도 버겁습니다. 파티를 꾸려 오는 것이 좋습니다.');
   }
   const safe = isSafe(p.x, p.y);
-  p.hp = Math.min(p.maxHp, p.hp + (safe ? 5 : .6) * dt); if (p.res === 'mana') p.mp = Math.min(p.maxMp, p.mp + (safe ? 3 : 1) * dt);
+  const rg2 = 1 + ((p.tm && p.tm.regen) || 0); p.hp = Math.min(p.maxHp, p.hp + (safe ? 5 : .6) * rg2 * dt); if (p.res === 'mana') p.mp = Math.min(p.maxMp, p.mp + (safe ? 3 : 1) * rg2 * dt);
   if (p.flagT && p.flagT < now()) { p.flagT = 0; bump(p); }
 }
 function effectsTick(e) {
-  if (e.fx.bleed > now() && now() - (e.bleedTick || 0) >= 1000) { e.bleedTick = now(); const src = e.bleedBy; if (src && canFight(src, e)) damage(e, Math.max(1, Math.round(e.maxHp * .03)), src, false); }
+  if (e.fx.bleed > now() && now() - (e.bleedTick || 0) >= 1000) { e.bleedTick = now(); const src = e.bleedBy; if (src && canFight(src, e)) damage(e, Math.max(1, Math.round(e.maxHp * .03 * (1 + (tmOf(src).bleedPct || 0)))), src, false); }
 }
 
 // ── tick
@@ -512,7 +555,7 @@ setInterval(() => {
     let awake = false; for (const p of players) if (Math.abs(p.x - e.x) < 32 && Math.abs(p.y - e.y) < 32) { awake = true; break; }
     if (awake) { monsterAI(e, DT); effectsTick(e); }
   }
-  if (now() - lastSnap >= 1000 / SNAP_HZ) { lastSnap = now(); for (const c of clients) if (c.player) { if (c.player.invDirty) sendInv(c.player); snapshot(c); } }
+  if (now() - lastSnap >= 1000 / SNAP_HZ) { lastSnap = now(); for (const c of clients) if (c.player) { if (c.player.invDirty) sendInv(c.player); if (c.player.talentsSent !== talentKey(c.player)) sendTalents(c.player); snapshot(c); } }
   if (now() - lastSave >= 10000) { lastSave = now(); for (const p of players) if (p.saveDirty) { p.saveDirty = false; try { saveCharacter(p); } catch (err) { console.error('save failed', err); } } }
   const ms = performance.now() - t0; perf.tickMs += (ms - perf.tickMs) * .05; if (ms > perf.maxMs) perf.maxMs = ms; if (++perf.n % 1200 === 0) perf.maxMs = ms;
 }, 1000 / TICK_HZ);
@@ -534,12 +577,12 @@ function snapshot(c) {
   }
   const gone = []; for (const id of c.known.keys()) if (!seen.has(id)) { gone.push(id); c.known.delete(id); c.last.delete(id); }
   const t = now(), cds = {}; for (const [k, v] of Object.entries(p.cds)) if (v > t) cds[k] = v - t;
-  const buffs = []; if (p.fx.bless > t) buffs.push(['bless', p.fx.bless - t]); if (p.fx.bulwark > t) buffs.push(['bulwark', p.fx.bulwark - t]); if (p.shield > 0 && p.shieldT > t) buffs.push(['shield', p.shieldT - t]); if (p.fx.bleed > t) buffs.push(['bleed', p.fx.bleed - t]); if (p.fx.slow > t) buffs.push(['slow', p.fx.slow - t]); if (p.stunT > t) buffs.push(['stun', p.stunT - t]);
+  const buffs = []; if (p.fx.bless > t) buffs.push(['bless', p.fx.bless - t]); if (p.fx.bulwark > t) buffs.push(['bulwark', p.fx.bulwark - t]); if (p.shield > 0 && p.shieldT > t) buffs.push(['shield', p.shieldT - t]); if (p.fx.bleed > t) buffs.push(['bleed', p.fx.bleed - t]); if (p.fx.slow > t) buffs.push(['slow', p.fx.slow - t]); if (p.stunT > t) buffs.push(['stun', p.stunT - t]); if (p.fx.shroud > t) buffs.push(['shroud', p.fx.shroud - t]); if (p.freeNext) buffs.push(['clear', 0]);
   c.sock.send(JSON.stringify({ t: 'snap', s: t, e: list, m: metas, g: gone, day: +dayPhase().toFixed(4), w: weather, qm: questMarks(p), raid: raid ? [raid.gate.dir, raid.left, Math.max(0, Math.round((raid.until - t) / 1000))] : 0,
     // me: 0 hp 1 maxHp 2 res 3 maxRes 4 lv 5 exp 6 need 7 gold 8 atk 9 def 10 honour 11 cls 12-14 (unused) 15 atkSpeed 16 range 17 kills 18-19 (unused) 20 blessed 21 party
     //     22 resource kind 23 칼자국 24 global cooldown left 25 {skill: cooldown left} 26 [skill, left, total] while casting 27 [[buff, left]] 28 shield
     me: [Math.ceil(p.hp), p.maxHp, Math.floor(p.mp), p.maxMp, p.level, p.exp, expNeed(p.level), p.gold, p.atk, p.def, p.align, p.cls, 0, 0, 0, p.atkSpeed, p.range, p.kills, 0, 0, p.fx.bless > t ? 1 : 0, p.partyId || 0,
-      p.res, p.cuts || 0, Math.max(0, (p.gcd || 0) - t), cds, p.casting ? [p.casting.id, Math.max(0, p.casting.until - t), SKILLS[p.casting.id].cast] : 0, buffs, p.shieldT > t ? p.shield : 0] }));
+      p.res, p.cuts || 0, Math.max(0, (p.gcd || 0) - t), cds, p.casting ? [p.casting.id, Math.max(0, p.casting.until - t), p.casting.total] : 0, buffs, p.shieldT > t ? p.shield : 0] }));
 }
 // status flags shown on every unit: 1 stunned 2 bleeding 4 slowed 8 shielded 16 bulwark 32 blessed 64 taunted
 function statusBits(e) { const t = now(), f = e.fx || {}; return (e.stunT > t ? 1 : 0) | (f.bleed > t ? 2 : 0) | (f.slow > t ? 4 : 0) | (e.shield > 0 && e.shieldT > t ? 8 : 0) | (f.bulwark > t ? 16 : 0) | (f.bless > t ? 32 : 0) | (e.tauntBy && e.tauntUntil > t ? 64 : 0); }
@@ -561,8 +604,8 @@ export function onConnection(sock) {
       const prev = online.get(acc); if (prev) { sys(prev, '다른 곳에서 접속하여 연결을 끊습니다.'); prev.client.sock.close(); }
       const ch = loadCharacter(acc); if (!ch) { sock.send(JSON.stringify({ t: 'err', msg: '캐릭터를 찾을 수 없습니다.' })); return; }
       const ban = banInfo(ch.name); if (ban) { sock.send(JSON.stringify({ t: 'err', msg: `차단된 계정입니다${ban.reason ? ' (' + ban.reason + ')' : ''}${ban.until ? ' · ' + new Date(ban.until).toLocaleString('ko-KR') + '까지' : ''}.`, relogin: true })); return; }
-      const pl = { id: nextId++, kind: 'player', accountId: acc, client: c, name: ch.name, look: LOOKS[ch.look] ? ch.look : 'knight', sprite: LOOKS[ch.look] ? ch.look : 'knight', cls: CLASSES[ch.cls] ? ch.cls : 'commoner',
-        level: ch.level, exp: ch.exp, gold: ch.gold, align: ch.align, kills: ch.kills, inv: ch.inventory.filter(x => ITEMS[x.id]), equip: {}, bank: (ch.bank || []).filter(x => ITEMS[x.id]), bankGold: ch.bank_gold || 0, quests: ch.quests || {}, stats: ch.stats || {}, skill2T: 0, npcOpen: null,
+      const pl = { id: nextId++, kind: 'player', accountId: acc, client: c, name: ch.name, look: LOOKS[ch.look] ? ch.look : 'knight', sprite: LOOKS[ch.look] ? ch.look : 'knight', cls: CLASSES[ch.cls] || ADV[ch.cls] ? ch.cls : 'commoner',   // advanced classes live in ADV, not CLASSES
+        level: ch.level, exp: ch.exp, gold: ch.gold, align: ch.align, kills: ch.kills, inv: ch.inventory.filter(x => ITEMS[x.id]), equip: {}, bank: (ch.bank || []).filter(x => ITEMS[x.id]), bankGold: ch.bank_gold || 0, quests: ch.quests || {}, stats: ch.stats || {}, talents: ch.talents || {}, npcOpen: null,
         x: SPAWN.x + (R() - .5) * 3, y: SPAWN.y + (R() - .5) * 3, speed: 4.2, dir: 0, path: null, target: null, engaged: false, cd: 0, metaVer: 1, flagT: 0, stunT: 0, fx: {}, pick: 0, talk: null, cds: {}, gcd: 0, cuts: 0, casting: null, shield: 0, shieldT: 0 };
       for (const s of SLOTS) { const it = ch.equipment[s]; if (it && ITEMS[it.id] && ITEMS[it.id].type === s) pl.equip[s] = { id: it.id, enh: it.enh || 0 }; }
       applyStats(pl, true); ents.set(pl.id, pl); c.player = pl; online.set(acc, pl);
@@ -591,6 +634,8 @@ export function onConnection(sock) {
       case 'titles': sendTitles(p); break;
       case 'quests': sendTo(p, { t: 'quests', q: QUESTS.map(q => ({ id: q.id, st: questState(p, q), prog: questProgress(p, q) })) }); break;
       case 'cast': trySkill(p, String(m.id || ''), m.tid); break;
+      case 'talent': learnTalent(p, String(m.id || '')); break;
+      case 'talentReset': resetTalents(p); break;
       case 'use': {
         const it = p.inv[m.i | 0]; if (!it || it.id !== m.id) return; const b = ITEMS[it.id];
         if (b.type === 'potion') { if (b.heal && p.hp >= p.maxHp) return sys(p, '체력이 가득 차 있습니다.'); if (b.mana && p.res !== 'mana') return sys(p, `${resName(p)}을(를) 쓰는 직업은 마나 물약이 필요 없습니다.`); if (b.mana && p.mp >= p.maxMp) return sys(p, '마나가 가득 차 있습니다.'); takeItem(p, it.id); if (b.heal) p.hp = Math.min(p.maxHp, p.hp + b.heal); if (b.mana) p.mp = Math.min(p.maxMp, p.mp + b.mana); broadcastNear(p.x, p.y, { t: 'ev', k: 'fx', fx: b.heal ? 'heal' : 'mana', id: p.id, v: b.heal || b.mana }); }

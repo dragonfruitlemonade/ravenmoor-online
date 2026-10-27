@@ -1,5 +1,5 @@
 // Windows: inventory, equipment, character, NPC services. Everything here only *requests* actions; the server decides.
-import { TITLES, TITLE_BY, ITEMS, SLOTS, SLOT_NAME, INV_SIZE, CLASSES, CLASS_LEVEL, ADV, ADV_LEVEL, ADV_OF, classInfo, ENH_RATE, enhCost, sellPrice, itemName, itemDesc, statsFor, QUESTS, BANK_SIZE, SKILLS, skillsFor, skillCostText, resourceOf, RESOURCES } from '/shared/rules.js';
+import { TITLES, TITLE_BY, ITEMS, SLOTS, SLOT_NAME, INV_SIZE, CLASSES, CLASS_LEVEL, ADV, ADV_LEVEL, ADV_OF, classInfo, ENH_RATE, enhCost, sellPrice, itemName, itemDesc, statsFor, QUESTS, BANK_SIZE, SKILLS, skillsFor, skillCostText, resourceOf, RESOURCES, treesFor, talentPoints, talentBlock, talentDesc, spentIn, spentTotal, TALENT_TIER_STEP } from '/shared/rules.js';
 
 const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -33,7 +33,7 @@ const itemIcon = (MF, id) => iconSrc(MF, ITEMS[id] ? ITEMS[id].icon : 'gold');
 
 // ── window manager
 export function createUI({ MF, send, log }) {
-  const state = { inv: [], equip: {}, gold: 0, me: null, npc: null, npcTab: null, selInv: -1, selEq: null, selEnh: null, quests: [], trade: null, tsel: [], tgold: 0, board: [], guild: null, titles: null };
+  const state = { inv: [], equip: {}, gold: 0, me: null, npc: null, npcTab: null, selInv: -1, selEq: null, selEnh: null, quests: [], trade: null, tsel: [], tgold: 0, board: [], guild: null, titles: null, talents: {} };
   const wins = {};
   let z = 20;
   function makeWin(key, title, css) {
@@ -55,6 +55,7 @@ export function createUI({ MF, send, log }) {
   makeWin('quest', '의뢰', { right: '16px', top: '200px', width: 'min(380px, calc(100vw - 32px))' });
   makeWin('trade', '거래', { ...TOPC, width: 'min(520px, calc(100vw - 32px))' });
   makeWin('guild', '길드', { right: '16px', top: '200px', width: 'min(400px, calc(100vw - 32px))' });
+  makeWin('talent', '특성', { ...TOPC, width: 'min(760px, calc(100vw - 32px))' });
   makeWin('board', '순위표', { ...TOPC, width: 'min(420px, calc(100vw - 32px))' });
   const body = k => wins[k].querySelector('.wb');
   // keep a window fully on screen: desktop positions (e.g. left:350px) and dragged spots can fall outside a phone or a resized window
@@ -99,6 +100,17 @@ export function createUI({ MF, send, log }) {
       const m = state.me; if (!m) return; const c = classInfo(m[11]);
       const row = (a, b) => `<div class="cr"><span>${a}</span><b>${b}</b></div>`;
       body.innerHTML = `<div class="cgrid">${row('직업', c.name)}${row('레벨', m[4])}${row('경험치', `${m[5]} / ${m[6]}`)}${row('체력', `${m[0]} / ${m[1]}`)}${row('마나', `${m[2]} / ${m[3]}`)}${row('공격력', m[8])}${row('방어력', m[9])}${row('공격속도', (1000 / m[15]).toFixed(2) + '/초')}${row('사거리', m[16] > 2 ? m[16] + '칸 (원거리)' : '근접')}${row('기술', skillsFor(m[11]).map(k => SKILLS[k].name).join(' · '))}${row('명예', m[10] < 0 ? `무법자 ${m[10]}` : m[10])}${row('처치한 모험가', m[17])}${state.titles ? row('처치한 몬스터', state.titles.stats.mkills) + row('보스 처치', state.titles.stats.bossKills) + row('습격 격퇴', state.titles.stats.raids) + row('쓰러진 횟수', state.titles.stats.deaths) : ''}</div>${state.titles ? `<div class="qh" style="margin-top:10px">칭호</div><div class="titles">${TITLES.map(t => { const have = state.titles.have.includes(t.id); return `<button class="btn tt${state.titles.cur === t.id ? ' on' : ''}" data-title="${t.id}" ${have ? '' : 'disabled'} title="${t.desc}">${t.name || '없음'}</button>`; }).join('')}</div>` : ''}${m[11] === 'commoner' ? `<p class="say">레벨 ${CLASS_LEVEL}이 되면 기사단·마법사 탑·예배당·여관의 스승에게 전직할 수 있습니다.</p>` : ADV_OF[m[11]] ? `<p class="say">레벨 ${ADV_LEVEL}이 되면 같은 스승에게 ${ADV[ADV_OF[m[11]]].name}(으)로 승급할 수 있습니다.</p>` : ''}`;
+    } else if (k === 'talent') {
+      // three trees side by side; tiers open after spending 3 × tier points in that tree; hover a talent for its next rank
+      const m = state.me; if (!m) return; const tal = state.talents.talents || {}; const pts = talentPoints(m[4]), left = pts - spentTotal(tal); const trees = treesFor(m[11]);
+      if (!trees.length) { body.innerHTML = hint(`특성은 레벨 ${CLASS_LEVEL}에 전직한 뒤 고를 수 있습니다. 지금까지 모인 점수: ${pts}`); return; }
+      const col = tr => { const spent = spentIn(tal, tr.id); let h = `<div class="ttree"><div class="tth"><b>${tr.name}</b> <span class="ds">${tr.role} · ${spent}점</span></div>`;
+        for (let tier = 0; tier < 4; tier++) { h += `<div class="ttier${spent < tier * TALENT_TIER_STEP ? ' locked' : ''}"><span class="tl">${tier ? tier * TALENT_TIER_STEP + '점' : ''}</span>`;
+          for (const t of tr.talents.filter(x => x.tier === tier)) { const r = tal[t.id] || 0, why = talentBlock(m[11], m[4], tal, t.id);
+            h += `<button class="tal${r ? ' have' : ''}${r >= t.max ? ' max' : ''}${t.tier === 3 ? ' cap' : ''}" data-tal="${t.id}" ${why ? 'aria-disabled="true"' : ''} title="${esc(r ? '현재: ' + talentDesc(t, r) + '\n' : '')}${r < t.max ? '다음: ' + esc(talentDesc(t, r + 1)) : '최대'}${why && r < t.max ? '\n' + esc(why) : ''}"><span class="tn">${t.name}</span><span class="tr">${r}/${t.max}</span><span class="td">${esc(talentDesc(t, Math.max(1, r)))}</span></button>`; }
+          h += '</div>'; }
+        return h + '</div>'; };
+      body.innerHTML = `<div class="thead"><span>남은 특성 점수 <b class="gold">${left}</b> / ${pts}</span><span class="ds">레벨 10부터 2레벨마다 1점 · 칸을 누르면 배웁니다</span><button class="btn" data-treset ${spentTotal(tal) ? '' : 'disabled'}>초기화 (금화 ${state.talents.reset || 0}, 마을에서)</button></div><div class="ttrees">${trees.map(col).join('')}</div>`;
     } else if (k === 'trade') {
       const tr = state.trade; if (!tr) { body.innerHTML = hint('거래 중이 아닙니다.'); return; }
       const side = (o, mine) => `<div class="tside${o.ok ? ' ok' : ''}"><div class="qh">${esc(o.name)}${o.ok ? ' ✓ 확인함' : ''}</div><div class="grid t">${[0, 1, 2, 3, 4, 5, 6, 7].map(i => { const it = o.items[i]; return it ? slot(it.id, it.n, it.enh, '', false) : '<div class="slot empty"></div>'; }).join('')}</div><div class="ds">금화 <b class="gold">${o.gold}</b></div></div>`;
@@ -163,6 +175,8 @@ export function createUI({ MF, send, log }) {
   }
   function onClick(k, e) {
     const tb = e.target.closest('[data-title]'); if (tb && k === 'char') { send({ t: 'title', id: tb.dataset.title }); return; }
+    const tl = e.target.closest('[data-tal]'); if (tl && k === 'talent') { send({ t: 'talent', id: tl.dataset.tal }); return; }
+    if (e.target.closest('[data-treset]') && k === 'talent') { if (confirm('특성을 모두 초기화할까요? 금화가 듭니다.')) send({ t: 'talentReset' }); return; }
     const gb = e.target.closest('[data-g]'); if (gb && k === 'guild') { const a = gb.dataset.g; if (a === '생성') send({ t: 'guild', args: ['생성', (body(k).querySelector('#gname') || {}).value || ''] }); else if (a === '공지') send({ t: 'guild', args: ['공지', (body(k).querySelector('#gnotice') || {}).value || ''] }); else if (a === '탈퇴') { if (confirm('길드를 떠나시겠습니까?')) send({ t: 'guild', args: ['탈퇴'] }); } return; }
     const to = e.target.closest('[data-toffer]'); if (to && k === 'trade' && state.trade) { const idx = [...state.trade.myIdx, +to.dataset.toffer].slice(0, 8); send({ t: 'toffer', items: idx, gold: state.trade.me.gold }); return; }
     const bk = e.target.closest('[data-bank]'); if (bk && k === 'npc') { send({ t: bk.dataset.bank === 'bank' ? 'bankOut' : 'bankIn', npc: state.npc.id, i: +bk.dataset.i, id: bk.dataset.id }); return; }
@@ -211,9 +225,10 @@ export function createUI({ MF, send, log }) {
       if (state.selEnh && state.selEnh.startsWith('inv:') && !state.inv[+state.selEnh.slice(4)]) state.selEnh = null;
       for (const k of Object.keys(wins)) render(k);
     },
-    setMe(me) { const changed = !state.me || state.me[4] !== me[4] || state.me[8] !== me[8] || state.me[9] !== me[9] || state.me[11] !== me[11] || state.me[10] !== me[10]; state.me = me; if (changed) for (const k of ['char', 'eq', 'npc']) render(k); },
+    setMe(me) { const changed = !state.me || state.me[4] !== me[4] || state.me[8] !== me[8] || state.me[9] !== me[9] || state.me[11] !== me[11] || state.me[10] !== me[10]; state.me = me; if (changed) for (const k of ['char', 'eq', 'npc', 'talent']) render(k); },
     openNpc(n) { const same = state.npc && state.npc.id === n.id; state.npc = n; if (!same) { state.npcTab = null; state.selEnh = null; } show('npc'); },
     setQuests(q) { state.quests = q; render('quest'); },
+    setTalents(m) { state.talents = m; render('talent'); },
     setTrade(tr) { if (!tr.id) { state.trade = null; hide('trade'); return; } state.trade = tr; if (wins.trade.hidden) show('trade'); else render('trade'); },
     setBoard(rows, g) { state.board = rows; state.gboard = g || []; show('board'); },
     closeNpc() { if (!wins.npc.hidden) { wins.npc.hidden = true; state.npc = null; } },

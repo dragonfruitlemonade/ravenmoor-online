@@ -1,6 +1,6 @@
 // Ravenmoor Online client: renders the shared map and baked 3D sprites, sends intentions to the server.
 import { MAP, OVER, TILE_W as TW, TILE_H as TH, G, TOWN, CX, CY, GATES, BUILDINGS, LOOKS, DUNGEON, PORTALS, CRYPT_FLOOR_NAME, buildWorld, isSafe, inDungeon, cryptFloor, noise } from '/shared/world.js';
-import { ITEMS, CLASSES, classInfo, SKILLS, GCD, RESOURCES, MAX_CUTS, skillsFor, skillCostText } from '/shared/rules.js';
+import { ITEMS, CLASSES, classInfo, SKILLS, GCD, RESOURCES, MAX_CUTS, skillsFor, skillCostText, talentPoints, spentTotal, treesFor, effSkill, talentMods } from '/shared/rules.js';
 import { createUI, iconSrc } from '/client/ui.js';
 import { initAudio, toggleMute, isMuted, sfx, sfxAt, setAmbience } from '/client/audio.js';
 
@@ -205,7 +205,7 @@ const ARM_CURSOR = `url("data:image/svg+xml,${encodeURIComponent('<svg xmlns="ht
 function saveSettings() { try { localStorage.setItem('rm-settings', JSON.stringify(SETTINGS)); } catch {} applySettings(); }
 function applySettings() { $('minimap').classList.toggle('big', !!SETTINGS.mmBig); if (!SETTINGS.rts) armAttack(false);
   $('ctrlhint').innerHTML = SETTINGS.rts ? '<kbd>우클릭</kbd> 이동·공격·줍기·대화 <kbd>좌클릭</kbd> 선택 <kbd>A</kbd>+클릭 공격(땅: 싸우며 이동)' : '<kbd>클릭</kbd> 이동·공격·줍기·대화 <kbd>우클릭</kbd> 상대 메뉴'; }
-function openSettings() { const w = $('settings'); w.hidden = !w.hidden; if (w.hidden) return; w.innerHTML = `<div class="wh"><span class="wt">설정</span><button class="wx" id="setx">✕</button></div><div class="wb"><label><input type="checkbox" data-s="sound" ${isMuted() ? '' : 'checked'}> 효과음·환경음</label><label><input type="checkbox" data-s="names" ${SETTINGS.names ? 'checked' : ''}> 이름표 표시</label><label><input type="checkbox" data-s="hideOthersNames" ${SETTINGS.hideOthersNames ? 'checked' : ''}> 다른 모험가 이름 숨기기</label><label><input type="checkbox" data-s="rts" ${SETTINGS.rts ? 'checked' : ''}> RTS식 조작 (오른쪽 클릭 이동, A+클릭 공격)</label><label><input type="checkbox" data-s="dmg" ${SETTINGS.dmg ? 'checked' : ''}> 피해 숫자 표시</label><label><input type="checkbox" data-s="mmBig" ${SETTINGS.mmBig ? 'checked' : ''}> 큰 미니맵</label><div class="row"><button class="btn" id="zoomReset">확대 초기화</button><button class="btn" id="setLogout">로그아웃</button></div><p class="ds">단축키: A 공격(RTS식: A+클릭, A 두 번은 가장 가까운 적) ·1~6 직업 기술 · 7·8·9 물약·귀향 · Z 줍기 · I 가방 · E 장비 · C 캐릭터 · Q 의뢰 · L 순위 · M 소리 · O 설정 · R 귓속말 답장 · Esc 멈춤</p></div>`;
+function openSettings() { const w = $('settings'); w.hidden = !w.hidden; if (w.hidden) return; w.innerHTML = `<div class="wh"><span class="wt">설정</span><button class="wx" id="setx">✕</button></div><div class="wb"><label><input type="checkbox" data-s="sound" ${isMuted() ? '' : 'checked'}> 효과음·환경음</label><label><input type="checkbox" data-s="names" ${SETTINGS.names ? 'checked' : ''}> 이름표 표시</label><label><input type="checkbox" data-s="hideOthersNames" ${SETTINGS.hideOthersNames ? 'checked' : ''}> 다른 모험가 이름 숨기기</label><label><input type="checkbox" data-s="rts" ${SETTINGS.rts ? 'checked' : ''}> RTS식 조작 (오른쪽 클릭 이동, A+클릭 공격)</label><label><input type="checkbox" data-s="dmg" ${SETTINGS.dmg ? 'checked' : ''}> 피해 숫자 표시</label><label><input type="checkbox" data-s="mmBig" ${SETTINGS.mmBig ? 'checked' : ''}> 큰 미니맵</label><div class="row"><button class="btn" id="zoomReset">확대 초기화</button><button class="btn" id="setLogout">로그아웃</button></div><p class="ds">단축키: A 공격(RTS식: A+클릭, A 두 번은 가장 가까운 적) ·1~6 직업 기술 · 7·8·9 물약·귀향 · Z 줍기 · I 가방 · E 장비 · C 캐릭터 · T 특성 · Q 의뢰 · L 순위 · M 소리 · O 설정 · R 귓속말 답장 · Esc 멈춤</p></div>`;
   $('setx').onclick = () => { w.hidden = true; }; $('zoomReset').onclick = () => { zoom = defaultZoom(); zoomSet = false; }; $('setLogout').onclick = () => $('logout').click();
   for (const c of w.querySelectorAll('input[data-s]')) c.onchange = () => { if (c.dataset.s === 'sound') { const mu = toggleMute(); $('muteBtn').querySelector('small').textContent = mu ? '음소거' : '소리'; return; } SETTINGS[c.dataset.s] = c.checked; saveSettings(); }; }
 const rainDrops = []; const floats = [], bolts = [], clicks = [], rings = [], tele = [], chainsFx = []; let hurtT = -1e9, hurtAmt = 0, deadAt = 0, entering = false, underAmt = 0, jumped = false; let raidState = null, weather = 0, weatherAmt = 0, hoverId = 0, dayPhase = 0, questMarks = {}, party = null, isAdminUser = false, lastWhisper = null;
@@ -256,6 +256,7 @@ function onMsg(m) {
   if (m.t === 'npc') { ui.openNpc(m); return; }
   if (m.t === 'npcclose') { ui.closeNpc(); return; }
   if (m.t === 'quests') { ui.setQuests(m.q); return; }
+  if (m.t === 'talents') { ui.setTalents(m); return; }
   if (m.t === 'party') { party = m; renderParty(); return; }
   if (m.t === 'titles') { ui.state.titles = m; ui.render('char'); return; }
   if (m.t === 'guild') { ui.state.guild = m.id ? m : null; if (m.show) ui.show('guild'); else ui.render('guild'); return; }
@@ -374,6 +375,7 @@ addEventListener('keydown', ev => {
   else if (k === 'l') send({ t: 'leaderboard' });
   else if (k === 'r' && lastWhisper) { $('chatin').value = `/귓 ${lastWhisper} `; $('chatin').focus(); ev.preventDefault(); }
   else if (k === '7' || k === '8' || k === '9') { const id = { 7: 'hpPotion', 8: 'mpPotion', 9: 'scroll' }[k]; const i = ui.firstOf(id); if (i >= 0) send({ t: 'use', i, id }); else addLog(`${ITEMS[id].name}이(가) 없습니다.`, 'sys'); }
+  else if (k === 't') ui.toggle('talent');
   else if (k === 'i') ui.toggle('inv'); else if (k === 'e') ui.toggle('eq'); else if (k === 'c') ui.toggle('char');
   else if (k === 'z' && me) send({ t: 'pickall' });
   // RTS: A arms an attack click; A again (or A on a touch screen, or classic mode) hits the nearest monster
@@ -458,13 +460,14 @@ function star(g, x, y, r) { g.beginPath(); for (let i = 0; i < 10; i++) { const 
 let lastZone = '';
 const nightLabel = p => { const n = Math.sin((p - .25) * Math.PI * 2); return n < .2 ? '낮' : n < .6 ? (p < .5 ? '황혼' : '새벽') : '밤'; };
 // ── skill bar (keys 1..6), rebuilt whenever your class changes; clicking a button casts on your current target
-let barCls = null, myCast = null;
+let barCls = null, myCast = null, talKey = '', curTm = talentMods({});
 const BUFF_NAME = { bless: '축복', bulwark: '철벽', shield: '보호막', bleed: '출혈', slow: '둔화', stun: '기절', taunt: '도발됨' };
 const STATUS_BITS = [[1, 'stun'], [2, 'bleed'], [4, 'slow'], [8, 'shield'], [16, 'bulwark'], [32, 'bless'], [64, 'taunt']];
 function castSlot(i) { if (!meStats) return; const id = skillsFor(meStats[11])[i]; if (id) send({ t: 'cast', id, tid: targetId || 0 }); }
 function buildSkillbar(cls) {
   barCls = cls; const box = $('skillbar'); box.innerHTML = '';
-  skillsFor(cls).forEach((id, i) => { const s = SKILLS[id], b = document.createElement('button'); b.className = 'hk sk'; b.dataset.skill = id;
+  const tm = talentMods((ui.state.talents && ui.state.talents.talents) || {});
+  skillsFor(cls).forEach((id, i) => { const s = effSkill(id, tm), b = document.createElement('button'); b.className = 'hk sk'; b.dataset.skill = id;
     b.title = `${s.name} — ${s.desc}\n${skillCostText(s, cls)}${s.cd ? ` · 재사용 ${s.cd / 1000}초` : ''}${s.cast ? ` · 시전 ${s.cast / 1000}초` : ' · 즉시'}${s.offGcd ? ' · 공통 대기 없음' : ''}`;
     b.innerHTML = `<kbd>${i + 1}</kbd><small>${s.name}</small><i class="cd"></i><b class="cdt"></b>`; b.onclick = () => castSlot(i); box.appendChild(b); });
 }
@@ -490,9 +493,13 @@ function hud() {
   const cls = meStats[11], res = meStats[22] || 'mana'; if (cls !== barCls) buildSkillbar(cls);
   $('mpbar').className = 'bar mp ' + res; $('mpt').textContent = `${RESOURCES[res].name} ${mp} / ${mmp}`;
   const cds = meStats[25] || {}, gcd = meStats[24] || 0;
-  for (const b of $('skillbar').children) { const id = b.dataset.skill, s = SKILLS[id]; const own = cds[id] || 0, g = s.offGcd ? 0 : gcd; const left = Math.max(own, g), tot = own >= g ? s.cd : GCD;
+  for (const b of $('skillbar').children) { const id = b.dataset.skill, s = effSkill(id, curTm); const own = cds[id] || 0, g = s.offGcd ? 0 : gcd; const left = Math.max(own, g), tot = own >= g ? s.cd : GCD;
     b.querySelector('.cd').style.height = (left ? 100 * Math.min(1, left / tot) : 0) + '%'; b.querySelector('.cdt').textContent = own > 1500 ? Math.ceil(own / 1000) : '';
     b.classList.toggle('nores', mp < s.cost || (s.finisher && !meStats[23])); }
+  // unspent talent points: a gold count on the T button
+  const tal = (ui.state.talents && ui.state.talents.talents) || {}; const tleft = treesFor(cls).length ? talentPoints(lv) - spentTotal(tal) : 0;
+  $('talPts').textContent = tleft > 0 ? tleft : ''; $('talBtn').classList.toggle('glow', tleft > 0);
+  if (talKey !== JSON.stringify(tal)) { talKey = JSON.stringify(tal); curTm = talentMods(tal); barCls = null; }   // rebuild the skill tooltips with talent-adjusted numbers
   const cutsEl = $('cuts'); cutsEl.hidden = res !== 'breath'; if (res === 'breath') cutsEl.innerHTML = '칼자국 ' + Array.from({ length: MAX_CUTS }, (_, i) => `<i class="${i < meStats[23] ? 'on' : ''}"></i>`).join('');
   $('buffs').innerHTML = (meStats[27] || []).map(([k, ms]) => `<span class="bf b-${k}">${BUFF_NAME[k] || k} ${Math.ceil(ms / 1000)}</span>`).join('') + (meStats[28] ? `<span class="bf b-shield">흡수 ${meStats[28]}</span>` : '');
   const cst = meStats[26]; if (cst) { const end = performance.now() + cst[1]; if (!myCast || myCast.id !== cst[0] || Math.abs(myCast.end - end) > 150) myCast = { id: cst[0], end, total: cst[2] }; } else myCast = null;
